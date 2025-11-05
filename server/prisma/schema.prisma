@@ -17,7 +17,7 @@ model Shop {
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
-  settings     ShopSettings?
+  settings     ShopSettings? 
 
   discounts   Discount[]
 }
