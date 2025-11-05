@@ -12,7 +12,9 @@ model Shop {
   id          Int       @id @default(autoincrement())
   shopDomain  String    @unique
   accessToken String
-  scope       String?
+  scope        String? 
+  installed    Boolean   @default(false) 
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   settings     ShopSettings?

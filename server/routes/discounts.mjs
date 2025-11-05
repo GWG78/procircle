@@ -34,17 +34,35 @@ router.post("/create", async (req, res) => {
       return res.status(400).json({ error: "Missing shopDomain or name" });
     }
 
-    const shop = await prisma.shop.findUnique({ where: { shopDomain } });
+    // 🏪 1️⃣ Get shop & settings
+    const shop = await prisma.shop.findUnique({
+      where: { shopDomain },
+      include: { settings: true },
+    });
+
     if (!shop) {
       return res.status(404).json({ error: "Shop not found" });
     }
 
-    // Generate a new discount code like PRC-GG-2F8C
+    // ⚙️ 2️⃣ Load defaults from ShopSettings
+    const settings = shop.settings || {};
+    const discountType = type || settings.discountType || "percentage";
+    const discountValue =
+      amount ?? settings.discountValue ?? 10; // prefer provided amount, else default
+    const expiryDays = settings.expiryDays ?? 30;
+
+    // Compute expiry date
+    const expiryDate = expiry
+      ? new Date(expiry)
+      : new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
+
+    // 🏷️ Generate discount code
     const code = generateDiscountCode(name);
+    console.log(
+      `🚀 Creating discount for ${shopDomain} → ${code} (${discountValue}${discountType === "percentage" ? "%" : " fixed"})`
+    );
 
-    console.log(`🚀 Creating discount in Shopify for ${shopDomain} → ${code}`);
-
-    // Shopify REST API client
+    // 🧠 Shopify REST client
     const client = new shopify.clients.Rest({
       session: {
         shop: shop.shopDomain,
@@ -52,19 +70,7 @@ router.post("/create", async (req, res) => {
       },
     });
 
-
-    // 🧠 Ensure amount is a valid decimal or fallback to 10
-            let discountValue = 10.0; // default fallback
-
-            if (amount !== undefined && amount !== null && amount !== "") {
-            const parsed = parseFloat(amount);
-            if (!isNaN(parsed)) discountValue = parsed;
-            else console.warn(`⚠️ Amount '${amount}' could not be parsed, using fallback: ${discountValue}`);
-            } else {
-            console.warn("⚠️ No amount provided, using default 10%");
-            }
-
-    // ✅ Create price rule + discount code in Shopify
+    // 🛍️ Create price rule
     const priceRuleResponse = await client.post({
       path: "price_rules",
       data: {
@@ -73,13 +79,15 @@ router.post("/create", async (req, res) => {
           target_type: "line_item",
           target_selection: "all",
           allocation_method: "across",
-          value_type: type === "percentage" ? "percentage" : "fixed_amount",
-          value: type === "percentage" ? `-${discountValue}` : `-${discountValue}`,
+          value_type: discountType === "percentage" ? "percentage" : "fixed_amount",
+          value: discountType === "percentage"
+            ? `-${discountValue}`
+            : `-${discountValue}`,
           once_per_customer: true,
           usage_limit: 1,
           customer_selection: "all",
           starts_at: new Date().toISOString(),
-          ends_at: expiry ? new Date(expiry).toISOString() : null,
+          ends_at: expiryDate.toISOString(),
         },
       },
       type: "application/json",
@@ -87,32 +95,32 @@ router.post("/create", async (req, res) => {
 
     const priceRuleId = priceRuleResponse.body.price_rule.id;
 
-    // Create the actual discount code under that rule
+    // 🧾 Create discount code
     const discountResponse = await client.post({
       path: `price_rules/${priceRuleId}/discount_codes`,
-      data: {
-        discount_code: { code },
-      },
+      data: { discount_code: { code } },
       type: "application/json",
     });
 
-    // ✅ Store in your local database
+    // 💾 Save discount locally
     const discount = await prisma.discount.create({
       data: {
         shopId: shop.id,
         code,
-        amount: parseFloat(amount),
-        type,
-        expiresAt: expiry ? new Date(expiry) : null,
+        amount: parseFloat(discountValue),
+        type: discountType,
+        expiresAt: expiryDate,
       },
     });
 
-    console.log(`✅ Discount created: ${code}`);
+    console.log(`✅ Discount created and saved: ${code}`);
     res.json({ success: true, discount });
-
   } catch (error) {
     console.error("❌ Error creating discount:", error);
-    res.status(500).json({ error: "Failed to create discount", details: error.message });
+    res.status(500).json({
+      error: "Failed to create discount",
+      details: error.message,
+    });
   }
 });
 
