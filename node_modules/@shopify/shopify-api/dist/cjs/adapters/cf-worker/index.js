@@ -1,0 +1,13 @@
+'use strict';
+
+var adapter = require('../web-api/adapter.js');
+var adapter$1 = require('./adapter.js');
+var index = require('../../runtime/http/index.js');
+var runtimeString = require('../../runtime/platform/runtime-string.js');
+
+index.setAbstractFetchFunc(fetch);
+index.setAbstractConvertRequestFunc(adapter.webApiConvertRequest);
+index.setAbstractConvertResponseFunc(adapter.webApiConvertResponse);
+index.setAbstractConvertHeadersFunc(adapter.webApiConvertHeaders);
+runtimeString.setAbstractRuntimeString(adapter$1.workerRuntimeString);
+//# sourceMappingURL=index.js.map

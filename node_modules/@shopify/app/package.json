@@ -1,0 +1,67 @@
+{
+  "name": "@shopify/app",
+  "version": "3.10.1",
+  "description": "Utilities for loading, building, and publishing apps.",
+  "homepage": "https://github.com/shopify/cli#readme",
+  "bugs": {
+    "url": "https://github.com/Shopify/cli/issues"
+  },
+  "type": "module",
+  "files": [
+    "/dist",
+    "/templates"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "@shopify:registry": "https://registry.npmjs.org"
+  },
+  "scripts": {
+    "prepack": "cross-env NODE_ENV=production yarn nx build && cp ../../README.md README.md",
+    "build": "nx build",
+    "clean": "nx clean",
+    "lint": "nx lint",
+    "lint:fix": "nx lint:fix",
+    "test": "nx run app:test",
+    "test:watch": "nx test:watch",
+    "type-check": "nx type-check"
+  },
+  "eslintConfig": {
+    "extends": [
+      "../../.eslintrc.cjs"
+    ]
+  },
+  "engine-strict": true,
+  "engines": {
+    "node": ">=14.13.1"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "oclif": {
+    "commands": "dist/cli/commands",
+    "hooks": {
+      "public_command_metadata": "./dist/cli/hooks/public_metadata",
+      "sensitive_command_metadata": "./dist/cli/hooks/sensitive_metadata"
+    }
+  },
+  "devDependencies": {
+    "@types/diff": "^5.0.2",
+    "@types/http-proxy": "^1.17.9",
+    "vitest": "^0.22.1"
+  },
+  "dependencies": {
+    "@fastify/reply-from": "^8.0.0",
+    "@oclif/core": "1.9.2",
+    "@shopify/cli-kit": "3.10.1",
+    "@shopify/shopify-cli-extensions": "3.10.1",
+    "http-proxy": "^1.18.1",
+    "diff": "^5.1.0",
+    "ws": "^8.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shopify/cli/edit/main/packages/app"
+  }
+}
