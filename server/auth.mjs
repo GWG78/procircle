@@ -93,10 +93,16 @@ router.get("/auth/install", async (req, res) => {
 // ===========================================================
 router.get("/auth/callback", async (req, res) => {
   try {
-    const session = await shopify.auth.callback({
+    console.log("🧩 Incoming /auth/callback query:", req.query);
+
+    const result = await shopify.auth.callback({
       rawRequest: req,
       rawResponse: res,
     });
+
+    console.log("🧩 shopify.auth.callback() result:", result);
+
+    const session = result?.session;
 
     if (!session) {
       console.error("❌ No session returned from OAuth callback");
