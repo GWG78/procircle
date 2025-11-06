@@ -145,18 +145,20 @@ router.get("/auth/callback", async (req, res) => {
     // 💾 Save or update the shop record in your DB
     // =======================================================
     await prisma.shop.upsert({
-      where: { shopDomain },
-      update: {
-        accessToken,
-        scope: session.scope || "",
-        updatedAt: new Date(),
-      },
-      create: {
-        shopDomain,
-        accessToken,
-        scope: session.scope || "",
-      },
-    });
+  where: { shopDomain },
+  update: {
+    accessToken,
+    scope: session.scope || "",
+    installed: true,             
+    updatedAt: new Date(),
+  },
+  create: {
+    shopDomain,
+    accessToken,
+    scope: session.scope || "",
+    installed: true,             
+  },
+});
 
     res.send(`✅ App installed successfully on ${shopDomain}`);
   } catch (err) {
