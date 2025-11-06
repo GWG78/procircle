@@ -93,7 +93,7 @@ router.get("/auth/install", async (req, res) => {
 // ===========================================================
 router.get("/auth/callback", async (req, res) => {
   try {
-    const { session } = await shopify.auth.callback({
+    const session = await shopify.auth.callback({
       rawRequest: req,
       rawResponse: res,
     });
@@ -110,55 +110,83 @@ router.get("/auth/callback", async (req, res) => {
     console.log("🔑 Access token:", accessToken);
 
     // =======================================================
+    // 💾 Save or update the shop record in your DB
+    // =======================================================
+    await prisma.shop.upsert({
+      where: { shopDomain },
+      update: {
+        accessToken,
+        scope: session.scope || "",
+        installed: true,
+        updatedAt: new Date(),
+      },
+      create: {
+        shopDomain,
+        accessToken,
+        scope: session.scope || "",
+        installed: true,
+      },
+    });
+
+    console.log(`💾 Saved shop record for ${shopDomain}`);
+
+    // =======================================================
     // 🔔 Automatically register the "orders/create" webhook
     // =======================================================
     try {
-      console.log(`🔔 Registering webhook for ${shopDomain}...`);
+      console.log(`🔔 Registering orders/create webhook for ${shopDomain}...`);
 
-      const client = new shopify.clients.Rest({
-        session: {
-          shop: shopDomain,
-          accessToken: accessToken,
-        },
+      const ordersClient = new shopify.clients.Rest({
+        session: { shop: shopDomain, accessToken },
       });
 
-      const webhookAddress = `${process.env.HOST}/api/webhooks/orders-create`;
+      const ordersWebhook = `${process.env.APP_URL}/api/webhooks/orders-create`;
 
-      await client.post({
+      await ordersClient.post({
         path: "webhooks",
         data: {
           webhook: {
             topic: "orders/create",
-            address: webhookAddress,
+            address: ordersWebhook,
             format: "json",
           },
         },
         type: "application/json",
       });
 
-      console.log(`✅ Webhook registered for ${shopDomain}: ${webhookAddress}`);
+      console.log(`✅ Registered orders/create webhook: ${ordersWebhook}`);
     } catch (error) {
-      console.error("❌ Failed to register webhook:", error);
+      console.error("❌ Failed to register orders webhook:", error);
     }
 
     // =======================================================
-    // 💾 Save or update the shop record in your DB
+    // 🔔 Register APP_UNINSTALLED webhook
     // =======================================================
-    await prisma.shop.upsert({
-  where: { shopDomain },
-  update: {
-    accessToken,
-    scope: session.scope || "",
-    installed: true,             
-    updatedAt: new Date(),
-  },
-  create: {
-    shopDomain,
-    accessToken,
-    scope: session.scope || "",
-    installed: true,             
-  },
-});
+    try {
+      console.log(`🔔 Registering app/uninstalled webhook for ${shopDomain}...`);
+
+      const uninstallClient = new shopify.clients.Rest({
+        session: { shop: shopDomain, accessToken },
+      });
+
+      const uninstallWebhook = `${process.env.APP_URL}/api/webhooks/app-uninstalled`;
+
+      await uninstallClient.post({
+        path: "webhooks",
+        data: {
+          webhook: {
+            topic: "app/uninstalled",
+            address: uninstallWebhook,
+            format: "json",
+          },
+        },
+        type: "application/json",
+      });
+
+      console.log(`✅ Registered app/uninstalled webhook: ${uninstallWebhook}`);
+    } catch (error) {
+      console.error("❌ Failed to register APP_UNINSTALLED webhook:", error);
+    }
 
     res.send(`✅ App installed successfully on ${shopDomain}`);
   } catch (err) {
