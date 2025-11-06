@@ -5,7 +5,6 @@ import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 
-
 const dbPath = process.env.DATABASE_URL?.replace("file:", "");
 if (dbPath && !fs.existsSync(path.resolve(process.cwd(), dbPath))) {
   console.warn("⚠️  WARNING: Prisma DB file does not exist →", dbPath);
@@ -54,7 +53,6 @@ import discountRoutes from "./routes/discounts.mjs";
 import webhookRoutes from "./routes/webhooks.mjs";
 import settingsRouter from "./routes/settings.mjs";
 
-
 // =============================================
 // 🚀 Server Setup
 // =============================================
@@ -66,7 +64,6 @@ const PORT = process.env.PORT || 3001;
 // ✅ Middleware
 app.use(cookieParser());
 app.set("trust proxy", 1);
-
 
 // ✅ Session
 app.use(
@@ -115,9 +112,60 @@ app.use("/api/discounts", discountRoutes);
 app.use("/api/webhooks", webhookRoutes);
 app.use("/api/settings", settingsRouter);
 
-// Root route
+// =============================================
+// 🌟 Root route — Shopify-friendly setup page
+// =============================================
 app.get("/", (req, res) => {
-  res.send("🚀 ProCircle.io App Server Running!");
+  const shop =
+    req.query.shop ||
+    req.get("X-Shopify-Shop-Domain") ||
+    "your-dev-store.myshopify.com";
+
+  const authUrl = `${process.env.APP_URL}/auth?shop=${shop}`;
+
+  res.send(`
+    <html>
+      <head>
+        <title>ProCircle App Setup</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            text-align: center;
+            padding: 60px;
+            background-color: #f6f6f7;
+            color: #202223;
+          }
+          h1 {
+            font-size: 26px;
+            margin-bottom: 20px;
+          }
+          p {
+            font-size: 16px;
+            margin-bottom: 30px;
+          }
+          a {
+            display: inline-block;
+            background: #008060;
+            color: white;
+            text-decoration: none;
+            font-weight: 600;
+            padding: 12px 28px;
+            border-radius: 6px;
+            transition: background 0.3s ease;
+          }
+          a:hover {
+            background: #004c3f;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>🚀 Welcome to ProCircle</h1>
+        <p>Click below to complete setup for your Shopify store.</p>
+        <a href="${authUrl}" target="_top">Complete Installation</a>
+        <p style="margin-top:40px;font-size:14px;color:#6d7175;">If you’ve already installed, click the app again from your Shopify admin.</p>
+      </body>
+    </html>
+  `);
 });
 
 // =============================================
