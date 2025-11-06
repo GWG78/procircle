@@ -14,11 +14,11 @@ model Shop {
   accessToken String
   scope        String? 
   installed    Boolean   @default(false) 
-
+  uninstalledAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  
   settings     ShopSettings? 
-
   discounts   Discount[]
 }
 
@@ -35,6 +35,9 @@ model Discount {
   redeemedAt     DateTime?
   orderId        String?
   orderAmount    Float?
+
+  active          Boolean   @default(true)
+
 }
 
 
