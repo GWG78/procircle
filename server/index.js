@@ -107,7 +107,7 @@ const shopify = shopifyApi({
 // =============================================
 // 🧩 Routes
 // =============================================
-app.use("/", authRoutes);
+app.use("/auth", authRoutes);
 app.use("/api/discounts", discountRoutes);
 app.use("/api/webhooks", webhookRoutes);
 app.use("/api/settings", settingsRouter);
