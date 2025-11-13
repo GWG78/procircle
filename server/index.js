@@ -115,13 +115,12 @@ app.use("/api/settings", settingsRouter);
 // =============================================
 // 🌟 Root route — Shopify-friendly setup page
 // =============================================
+// Root route — Embedded dashboard
 app.get("/", (req, res) => {
-  const shop =
+  const shopParam =
     req.query.shop ||
     req.get("X-Shopify-Shop-Domain") ||
     "your-dev-store.myshopify.com";
-
-  const authUrl = `${process.env.APP_URL}/auth?shop=${shop}`;
 
   res.send(`
     <!DOCTYPE html>
@@ -134,11 +133,6 @@ app.get("/", (req, res) => {
         <!-- Shopify App Bridge v3 -->
         <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
 
-        <!-- Polaris CSS (optional but nice) -->
-        <link
-          rel="stylesheet"
-          href="https://unpkg.com/@shopify/polaris@12.7.0/build/esm/styles.css"
-        />
         <style>
           body {
             margin: 0;
@@ -151,15 +145,16 @@ app.get("/", (req, res) => {
           .App {
             min-height: 100vh;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             justify-content: center;
+            padding: 24px;
           }
 
           .Card {
             background: #fff;
             border-radius: 12px;
             padding: 24px;
-            max-width: 640px;
+            max-width: 960px;
             width: 100%;
             box-shadow: 0 1px 3px rgba(0,0,0,0.08);
           }
@@ -167,12 +162,19 @@ app.get("/", (req, res) => {
           .Title {
             font-size: 20px;
             font-weight: 600;
-            margin: 0 0 8px;
+            margin: 0 0 4px;
           }
 
           .Subtitle {
             color: #6d7175;
             margin: 0 0 16px;
+          }
+
+          .Grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 24px;
+            margin-top: 16px;
           }
 
           .SectionLabel {
@@ -184,11 +186,44 @@ app.get("/", (req, res) => {
             margin-bottom: 8px;
           }
 
-          .Row {
+          .Field {
+            margin-bottom: 12px;
+          }
+
+          .Field label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 4px;
+          }
+
+          .Field small {
+            display: block;
+            font-size: 11px;
+            color: #8c9196;
+          }
+
+          input[type="text"],
+          input[type="number"],
+          select,
+          textarea {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 6px 8px;
+            border-radius: 4px;
+            border: 1px solid #c9cccf;
+            font-size: 14px;
+          }
+
+          select[multiple] {
+            min-height: 120px;
+          }
+
+          .CheckboxRow {
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            margin-bottom: 8px;
+            gap: 8px;
+            margin: 8px 0;
           }
 
           .Tag {
@@ -230,51 +265,159 @@ app.get("/", (req, res) => {
             color: #8c9196;
             margin-top: 12px;
           }
+
+          .Badge {
+            display: inline-block;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 999px;
+            background: #f0f0f0;
+            color: #5c5f62;
+            margin-left: 4px;
+          }
+
+          .Toast {
+            position: fixed;
+            bottom: 16px;
+            right: 16px;
+            background: #111827;
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 999px;
+            font-size: 13px;
+            display: none;
+          }
+
+          .Toast--show {
+            display: inline-flex;
+          }
         </style>
       </head>
       <body>
         <div class="App">
           <div class="Card">
-            <h1 class="Title">ProCircle is connected ✅</h1>
+            <h1 class="Title">ProCircle settings</h1>
             <p class="Subtitle">
-              Your store is now ready to generate Google Sheets–powered discount codes.
+              Control who can claim discounts and how your codes are generated
+              from your Google Sheet.
             </p>
 
-            <div class="Section">
-              <div class="SectionLabel">Store</div>
-              <div class="Row">
-                <div>${shop || "Your Shopify store"}</div>
-                <span class="Tag">Live</span>
+            <div class="Grid">
+              <!-- LEFT: Discount parameters -->
+              <div>
+                <div class="SectionLabel">Discount rules</div>
+
+                <div class="Field">
+                  <label for="discountType">Discount type</label>
+                  <select id="discountType">
+                    <option value="percentage">Percentage (%)</option>
+                    <option value="fixed">Fixed amount</option>
+                  </select>
+                  <small>How the discount should be applied at checkout.</small>
+                </div>
+
+                <div class="Field">
+                  <label for="discountValue">Discount value</label>
+                  <input id="discountValue" type="number" min="1" step="1" />
+                  <small>For percentage, 20 = 20% off. For fixed, use your store currency.</small>
+                </div>
+
+                <div class="Field">
+                  <label for="expiryDays">Expiry window (days)</label>
+                  <input id="expiryDays" type="number" min="1" step="1" />
+                  <small>How long codes are valid from creation. Leave blank for no expiry.</small>
+                </div>
+
+                <div class="Field">
+                  <label for="maxDiscounts">Max number of codes</label>
+                  <input id="maxDiscounts" type="number" min="1" step="1" />
+                  <small>Optional. Cap total codes generated for this shop.</small>
+                </div>
+
+                <div class="CheckboxRow">
+                  <input type="checkbox" id="oneTimeUse" checked />
+                  <label for="oneTimeUse" style="margin:0;">One-time use per code</label>
+                </div>
+                <small class="Small">
+                  We strongly recommend keeping this on so each member gets a unique single-use code.
+                </small>
+              </div>
+
+              <!-- RIGHT: Eligibility filters -->
+              <div>
+                <div class="SectionLabel">Who can claim codes</div>
+
+                <div class="Field">
+                  <label for="allowedCountries">Countries</label>
+                  <select id="allowedCountries" multiple>
+                    <option value="CH">Switzerland</option>
+                    <option value="FR">France</option>
+                    <option value="IT">Italy</option>
+                    <option value="DE">Germany</option>
+                    <option value="AT">Austria</option>
+                    <option value="UK">United Kingdom</option>
+                  </select>
+                  <small>Members outside these countries won’t see your offers.</small>
+                </div>
+
+                <div class="Field">
+                  <label for="allowedMemberTypes">
+                    Member type
+                    <span class="Badge">Used as filters on your site</span>
+                  </label>
+                  <select id="allowedMemberTypes" multiple>
+                    <option value="INSTRUCTOR">Instructors (ski & snowboard)</option>
+                    <option value="CLUB_MEMBER">Ski & snowboard club members</option>
+                    <option value="RACER">Race & competition athletes</option>
+                    <option value="MOUNTAIN_GUIDE">Mountain & backcountry guides</option>
+                  </select>
+                  <small>
+                    These map to your WordPress / Google Sheet filters so only eligible members see this brand.
+                  </small>
+                </div>
+
+                <div class="Field">
+                  <label for="categories">
+                    Collections
+                    <span class="Badge">From Shopify</span>
+                  </label>
+                  <select id="categories" multiple></select>
+                  <small>
+                    Choose which collections your ProCircle discounts should apply to.
+                    If none are selected, we’ll fall back to your default discount config.
+                  </small>
+                </div>
               </div>
             </div>
 
-            <div class="Section" style="margin-top:16px;">
-              <div class="SectionLabel">Discount engine</div>
-              <p class="Small">
-                Discounts are created via your Google Sheet using the ProCircle script.
-                New rows in <strong>Users</strong> will automatically create codes in
-                <strong>Codes</strong>.
-              </p>
-            </div>
-
             <div class="ButtonRow">
-              <button class="Button Button-primary" id="openDocs">
-                View setup guide
+              <button class="Button Button-primary" id="saveSettings">
+                Save settings
               </button>
               <button class="Button Button-secondary" id="openSheet">
                 Open Google Sheet
               </button>
+              <button class="Button Button-secondary" id="openDocs">
+                View setup guide
+              </button>
             </div>
 
             <div class="Small">
-              Don&apos;t see codes? Make sure the Apps Script trigger
-              is running and your API key matches the one in ProCircle.
+              These settings sync to your Google Sheet via the Apps Script,
+              so your WordPress site knows which members can see each brand.
             </div>
           </div>
         </div>
 
+        <div id="toast" class="Toast"></div>
+
         <script>
           (function() {
+            const shopFromServer = ${JSON.stringify(shopParam)};
+            const params = new URLSearchParams(window.location.search);
+            const shop = params.get("shop") || shopFromServer;
+            const host = params.get("host");
+
             const AppBridge = window["app-bridge"];
             if (!AppBridge) {
               console.error("App Bridge not loaded");
@@ -282,31 +425,166 @@ app.get("/", (req, res) => {
             }
 
             const createApp = AppBridge.createApp;
-
             const app = createApp({
               apiKey: "${process.env.SHOPIFY_API_KEY}",
-              host: new URLSearchParams(window.location.search).get("host"),
+              host,
               forceRedirect: true,
             });
 
             const actions = AppBridge.actions;
             const Redirect = actions.Redirect.create(app);
 
-            // Open docs (placeholder – swap with your real docs URL later)
-            document.getElementById("openDocs").addEventListener("click", () => {
+            const toastEl = document.getElementById("toast");
+            function showToast(msg, isError) {
+              toastEl.textContent = msg;
+              toastEl.style.background = isError ? "#b91c1c" : "#111827";
+              toastEl.classList.add("Toast--show");
+              setTimeout(() => toastEl.classList.remove("Toast--show"), 3000);
+            }
+
+            const $ = (id) => document.getElementById(id);
+
+            const discountTypeEl = $("discountType");
+            const discountValueEl = $("discountValue");
+            const expiryDaysEl = $("expiryDays");
+            const maxDiscountsEl = $("maxDiscounts");
+            const oneTimeUseEl = $("oneTimeUse");
+            const allowedCountriesEl = $("allowedCountries");
+            const allowedMemberTypesEl = $("allowedMemberTypes");
+            const categoriesEl = $("categories");
+
+            function getMultiSelectValues(selectEl) {
+              return Array.from(selectEl.selectedOptions).map(o => o.value);
+            }
+
+            function setMultiSelectValues(selectEl, values) {
+              const set = new Set(values || []);
+              Array.from(selectEl.options).forEach(opt => {
+                opt.selected = set.has(opt.value);
+              });
+            }
+
+            // Load existing settings + collections
+            async function loadSettings() {
+              try {
+                const base = "/api/settings";
+                const query = shop ? "?shop=" + encodeURIComponent(shop) : "";
+                const res = await fetch(base + query, {
+                  credentials: "include",
+                });
+                const data = await res.json();
+                if (!data.success) {
+                  console.warn("Settings load warning:", data);
+                }
+
+                const s = data.settings || {};
+                discountTypeEl.value = s.discountType || "percentage";
+                discountValueEl.value = s.discountValue ?? 20;
+                expiryDaysEl.value = s.expiryDays ?? "";
+                maxDiscountsEl.value = s.maxDiscounts ?? "";
+                oneTimeUseEl.checked =
+                  typeof s.oneTimeUse === "boolean" ? s.oneTimeUse : true;
+
+                setMultiSelectValues(allowedCountriesEl, s.allowedCountries);
+                setMultiSelectValues(allowedMemberTypesEl, s.allowedMemberTypes);
+
+                // Load collections and apply selected categories
+                await loadCollections(s.categories || []);
+              } catch (err) {
+                console.error("Error loading settings:", err);
+                showToast("Failed to load settings", true);
+              }
+            }
+
+            async function loadCollections(selectedHandles) {
+              try {
+                const base = "/api/settings/collections";
+                const query = shop ? "?shop=" + encodeURIComponent(shop) : "";
+                const res = await fetch(base + query, {
+                  credentials: "include",
+                });
+                const data = await res.json();
+                if (!data.success) {
+                  console.warn("Collections load warning:", data);
+                  return;
+                }
+
+                const collections = data.collections || [];
+                categoriesEl.innerHTML = "";
+
+                collections.forEach((c) => {
+                  const opt = document.createElement("option");
+                  opt.value = c.handle;
+                  opt.textContent = c.title || c.handle;
+                  categoriesEl.appendChild(opt);
+                });
+
+                setMultiSelectValues(categoriesEl, selectedHandles);
+              } catch (err) {
+                console.error("Error loading collections:", err);
+                showToast("Failed to load collections", true);
+              }
+            }
+
+            // Save settings
+            $("saveSettings").addEventListener("click", async () => {
+              try {
+                const payload = {
+                  discountType: discountTypeEl.value,
+                  discountValue: Number(discountValueEl.value),
+                  expiryDays: expiryDaysEl.value
+                    ? Number(expiryDaysEl.value)
+                    : null,
+                  maxDiscounts: maxDiscountsEl.value
+                    ? Number(maxDiscountsEl.value)
+                    : null,
+                  oneTimeUse: oneTimeUseEl.checked,
+                  allowedCountries: getMultiSelectValues(allowedCountriesEl),
+                  allowedMemberTypes: getMultiSelectValues(allowedMemberTypesEl),
+                  categories: getMultiSelectValues(categoriesEl),
+                };
+
+                const base = "/api/settings";
+                const query = shop ? "?shop=" + encodeURIComponent(shop) : "";
+                const res = await fetch(base + query, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  credentials: "include",
+                  body: JSON.stringify(payload),
+                });
+
+                const data = await res.json();
+                if (!data.success) {
+                  showToast("Failed to save settings", true);
+                  return;
+                }
+
+                showToast("Settings saved", false);
+              } catch (err) {
+                console.error("Error saving settings:", err);
+                showToast("Error saving settings", true);
+              }
+            });
+
+            // Open docs
+            $("openDocs").addEventListener("click", () => {
               Redirect.dispatch(
                 Redirect.Action.REMOTE,
-                "https://procircle.io" // or your Notion/docs URL
+                "https://procircle.io" // swap when docs are live
               );
             });
 
-            // Open Google Sheet (placeholder – drop in your real sheet link)
-            document.getElementById("openSheet").addEventListener("click", () => {
+            // Open Google Sheet (your internal sheet)
+            $("openSheet").addEventListener("click", () => {
               Redirect.dispatch(
                 Redirect.Action.REMOTE,
                 "https://docs.google.com/spreadsheets/"
               );
             });
+
+            loadSettings();
           })();
         </script>
       </body>
