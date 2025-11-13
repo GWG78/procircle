@@ -124,45 +124,191 @@ app.get("/", (req, res) => {
   const authUrl = `${process.env.APP_URL}/auth?shop=${shop}`;
 
   res.send(`
-    <html>
+    <!DOCTYPE html>
+    <html lang="en">
       <head>
-        <title>ProCircle App Setup</title>
+        <meta charset="utf-8" />
+        <title>ProCircle Dashboard</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+        <!-- Shopify App Bridge v3 -->
+        <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+
+        <!-- Polaris CSS (optional but nice) -->
+        <link
+          rel="stylesheet"
+          href="https://unpkg.com/@shopify/polaris@12.7.0/build/esm/styles.css"
+        />
         <style>
           body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            text-align: center;
-            padding: 60px;
-            background-color: #f6f6f7;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "San Francisco",
+              "Helvetica Neue", sans-serif;
+            background: #f6f6f7;
+          }
+
+          .App {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+
+          .Card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 640px;
+            width: 100%;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+          }
+
+          .Title {
+            font-size: 20px;
+            font-weight: 600;
+            margin: 0 0 8px;
+          }
+
+          .Subtitle {
+            color: #6d7175;
+            margin: 0 0 16px;
+          }
+
+          .SectionLabel {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #8c9196;
+            margin-bottom: 8px;
+          }
+
+          .Row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+          }
+
+          .Tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 12px;
+            background: #e3f1df;
+            color: #285c2a;
+          }
+
+          .ButtonRow {
+            display: flex;
+            margin-top: 16px;
+            gap: 8px;
+          }
+
+          .Button {
+            padding: 8px 14px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+          }
+
+          .Button-primary {
+            background: #008060;
+            color: #fff;
+          }
+
+          .Button-secondary {
+            background: #f6f6f7;
             color: #202223;
           }
-          h1 {
-            font-size: 26px;
-            margin-bottom: 20px;
-          }
-          p {
-            font-size: 16px;
-            margin-bottom: 30px;
-          }
-          a {
-            display: inline-block;
-            background: #008060;
-            color: white;
-            text-decoration: none;
-            font-weight: 600;
-            padding: 12px 28px;
-            border-radius: 6px;
-            transition: background 0.3s ease;
-          }
-          a:hover {
-            background: #004c3f;
+
+          .Small {
+            font-size: 12px;
+            color: #8c9196;
+            margin-top: 12px;
           }
         </style>
       </head>
       <body>
-        <h1>🚀 Welcome to ProCircle</h1>
-        <p>Click below to complete setup for your Shopify store.</p>
-        <a href="${authUrl}" target="_top">Complete Installation</a>
-        <p style="margin-top:40px;font-size:14px;color:#6d7175;">If you’ve already installed, click the app again from your Shopify admin.</p>
+        <div class="App">
+          <div class="Card">
+            <h1 class="Title">ProCircle is connected ✅</h1>
+            <p class="Subtitle">
+              Your store is now ready to generate Google Sheets–powered discount codes.
+            </p>
+
+            <div class="Section">
+              <div class="SectionLabel">Store</div>
+              <div class="Row">
+                <div>${shop || "Your Shopify store"}</div>
+                <span class="Tag">Live</span>
+              </div>
+            </div>
+
+            <div class="Section" style="margin-top:16px;">
+              <div class="SectionLabel">Discount engine</div>
+              <p class="Small">
+                Discounts are created via your Google Sheet using the ProCircle script.
+                New rows in <strong>Users</strong> will automatically create codes in
+                <strong>Codes</strong>.
+              </p>
+            </div>
+
+            <div class="ButtonRow">
+              <button class="Button Button-primary" id="openDocs">
+                View setup guide
+              </button>
+              <button class="Button Button-secondary" id="openSheet">
+                Open Google Sheet
+              </button>
+            </div>
+
+            <div class="Small">
+              Don&apos;t see codes? Make sure the Apps Script trigger
+              is running and your API key matches the one in ProCircle.
+            </div>
+          </div>
+        </div>
+
+        <script>
+          (function() {
+            const AppBridge = window["app-bridge"];
+            if (!AppBridge) {
+              console.error("App Bridge not loaded");
+              return;
+            }
+
+            const createApp = AppBridge.createApp;
+
+            const app = createApp({
+              apiKey: "${process.env.SHOPIFY_API_KEY}",
+              host: new URLSearchParams(window.location.search).get("host"),
+              forceRedirect: true,
+            });
+
+            const actions = AppBridge.actions;
+            const Redirect = actions.Redirect.create(app);
+
+            // Open docs (placeholder – swap with your real docs URL later)
+            document.getElementById("openDocs").addEventListener("click", () => {
+              Redirect.dispatch(
+                Redirect.Action.REMOTE,
+                "https://procircle.io" // or your Notion/docs URL
+              );
+            });
+
+            // Open Google Sheet (placeholder – drop in your real sheet link)
+            document.getElementById("openSheet").addEventListener("click", () => {
+              Redirect.dispatch(
+                Redirect.Action.REMOTE,
+                "https://docs.google.com/spreadsheets/"
+              );
+            });
+          })();
+        </script>
       </body>
     </html>
   `);
