@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>ProCircle Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Shopify AppBridge v3 -->
+  <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "San Francisco", "Helvetica Neue", sans-serif;
+      background: #f6f6f7;
+    }
+
+    .App {
+      min-height: 100vh;
+      padding: 24px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .Card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 24px;
+      width: 100%;
+      max-width: 960px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .Title { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+    .Subtitle { color: #6d7175; margin-bottom: 20px; }
+
+    .Grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 24px;
+      margin-top: 16px;
+    }
+
+    .SectionLabel {
+      font-size: 13px;
+      text-transform: uppercase;
+      color: #8c9196;
+      margin-bottom: 8px;
+    }
+
+    .Field { margin-bottom: 12px; }
+    .Field label { font-size: 14px; font-weight: 500; display: block; margin-bottom: 4px; }
+    .Field small { font-size: 11px; color: #8c9196; }
+
+    input, select {
+      width: 100%;
+      padding: 6px 8px;
+      border-radius: 4px;
+      border: 1px solid #c9cccf;
+      font-size: 14px;
+    }
+
+    select[multiple] { min-height: 120px; }
+
+    /* FIXED Checkbox alignment */
+    .CheckboxGroup label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .CheckboxGroup input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+
+    .ButtonRow { margin-top: 20px; display: flex; gap: 10px; }
+    .Button { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    .Button-primary { background: #008060; color: #fff; }
+    .Button-secondary { background: #f6f6f7; color: #202223; }
+
+    .Toast {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: #111827;
+      color: white;
+      font-size: 13px;
+      display: none;
+    }
+    .Toast--show { display: inline-flex; }
+  </style>
+</head>
+
+<body>
+  <div class="App">
+    <div class="Card">
+      <h1 class="Title">ProCircle settings</h1>
+      <p class="Subtitle">Control who can claim discounts and how codes are generated.</p>
+
+      <div class="Grid">
+        <!-- LEFT COLUMN -->
+        <div>
+          <div class="SectionLabel">Discount rules</div>
+
+          <div class="Field">
+            <label for="discountType">Discount type</label>
+            <select id="discountType">
+              <option value="percentage">Percentage (%)</option>
+              <option value="fixed">Fixed amount</option>
+            </select>
+          </div>
+
+          <div class="Field">
+            <label for="discountValue">Discount value</label>
+            <input id="discountValue" type="number" min="1" />
+          </div>
+
+          <div class="Field">
+            <label for="expiryDays">Expiry window (days)</label>
+            <input id="expiryDays" type="number" min="1" />
+          </div>
+
+          <div class="Field">
+            <label for="maxDiscounts">Max number of codes</label>
+            <input id="maxDiscounts" type="number" min="1" />
+          </div>
+
+          <label class="CheckboxGroup">
+            <input id="oneTimeUse" type="checkbox" checked />
+            <span>One-time use per code</span>
+          </label>
+        </div>
+
+        <!-- RIGHT COLUMN -->
+        <div>
+          <div class="SectionLabel">Allowed Countries</div>
+
+          <div class="CheckboxGroup">
+            <label><input type="checkbox" name="allowedCountries" value="UK"> United Kingdom</label>
+            <label><input type="checkbox" name="allowedCountries" value="CH"> Switzerland</label>
+            <label><input type="checkbox" name="allowedCountries" value="FR"> France</label>
+            <label><input type="checkbox" name="allowedCountries" value="IT"> Italy</label>
+            <label><input type="checkbox" name="allowedCountries" value="DE"> Germany</label>
+            <label><input type="checkbox" name="allowedCountries" value="AT"> Austria</label>
+          </div>
+
+          <div class="SectionLabel" style="margin-top: 24px;">Allowed Member Types</div>
+
+          <div class="CheckboxGroup">
+            <label><input type="checkbox" name="allowedMemberTypes" value="instructor"> Instructor</label>
+            <label><input type="checkbox" name="allowedMemberTypes" value="club_member"> Club Member</label>
+            <label><input type="checkbox" name="allowedMemberTypes" value="competitor"> Competitor</label>
+            <label><input type="checkbox" name="allowedMemberTypes" value="mountain_guide"> Mountain Guide</label>
+          </div>
+
+          <div class="Field" style="margin-top:20px;">
+            <label for="categories">
+              Collections <span style="font-size:10px; background:#e4e5e7; padding:2px 6px; border-radius:8px;">Shopify</span>
+            </label>
+            <select id="categories" multiple></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="ButtonRow">
+        <button id="saveSettings" class="Button Button-primary">Save settings</button>
+        <button id="openSheet" class="Button Button-secondary">Open Google Sheet</button>
+        <button id="openDocs" class="Button Button-secondary">Setup guide</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="Toast"></div>
+
+  <!-- API KEY injection from server -->
+  <script id="procircle-env" data-api-key="{{API_KEY}}"></script>
+
+  <script>
+    (function() {
+      // Read API key from server header
+        const apiKey = document.currentScript.getAttribute("data-api-key")
+        || (document.head.querySelector("meta[name='x-procircle-apikey']")?.content)
+        || "";
+
+      const params = new URLSearchParams(window.location.search);
+      const shop = params.get("shop");
+      const host = params.get("host");
+
+      const AppBridge = window["app-bridge"];
+      const createApp = AppBridge.createApp;
+
+      const app = createApp({
+        apiKey,
+        host,
+        forceRedirect: true,
+      });
+
+      const Redirect = AppBridge.actions.Redirect.create(app);
+
+      const $ = (id) => document.getElementById(id);
+
+      /** Toast */
+      function showToast(msg, err) {
+        const el = $("toast");
+        el.textContent = msg;
+        el.style.background = err ? "#b91c1c" : "#111827";
+        el.classList.add("Toast--show");
+        setTimeout(() => el.classList.remove("Toast--show"), 2500);
+      }
+
+      /** Checkboxes helpers */
+      function getChecked(name) {
+        return [...document.querySelectorAll(`input[name="${name}"]:checked`)]
+          .map(cb => cb.value);
+      }
+      function setChecked(name, values) {
+        const set = new Set(values || []);
+        document.querySelectorAll(`input[name="${name}"]`).forEach(cb => {
+          cb.checked = set.has(cb.value);
+        });
+      }
+
+      /** Multi select helpers */
+      function getMulti(el) {
+        return [...el.selectedOptions].map(o => o.value);
+      }
+      function setMulti(el, arr) {
+        const set = new Set(arr || []);
+        [...el.options].forEach(opt => opt.selected = set.has(opt.value));
+      }
+
+      /** Load settings */
+      async function loadSettings() {
+        try {
+          const res = await fetch(`/api/settings?shop=${shop}`, { credentials: "include" });
+          const data = await res.json();
+          const s = data.settings;
+
+          $("discountType").value = s.discountType;
+          $("discountValue").value = s.discountValue;
+          $("expiryDays").value = s.expiryDays || "";
+          $("maxDiscounts").value = s.maxDiscounts || "";
+          $("oneTimeUse").checked = !!s.oneTimeUse;
+
+          setChecked("allowedCountries", s.allowedCountries);
+          setChecked("allowedMemberTypes", s.allowedMemberTypes);
+
+          await loadCollections(s.categories);
+        } catch (err) {
+          showToast("Failed to load settings", true);
+        }
+      }
+
+      /** Load collections from Shopify */
+      async function loadCollections(selected) {
+        try {
+          const res = await fetch(`/api/settings/collections?shop=${shop}`, { credentials: "include" });
+          const data = await res.json();
+
+          const sel = $("categories");
+          sel.innerHTML = "";
+          data.collections.forEach(c => {
+            const opt = document.createElement("option");
+            opt.value = c.handle;
+            opt.textContent = c.title || c.handle;
+            sel.appendChild(opt);
+          });
+
+          setMulti(sel, selected);
+        } catch (err) {
+          showToast("Failed to load collections", true);
+        }
+      }
+
+      $("saveSettings").addEventListener("click", async () => {
+        try {
+          const payload = {
+            discountType: $("discountType").value,
+            discountValue: Number($("discountValue").value),
+            expiryDays: $("expiryDays").value ? Number($("expiryDays").value) : null,
+            maxDiscounts: $("maxDiscounts").value ? Number($("maxDiscounts").value) : null,
+            oneTimeUse: $("oneTimeUse").checked,
+            allowedCountries: getChecked("allowedCountries"),
+            allowedMemberTypes: getChecked("allowedMemberTypes"),
+            categories: getMulti($("categories")),
+          };
+
+          const res = await fetch(`/api/settings?shop=${shop}`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          const data = await res.json();
+          if (!data.success) return showToast("Failed to save settings", true);
+
+          showToast("Settings saved!");
+        } catch (err) {
+          showToast("Error saving settings", true);
+        }
+      });
+
+      $("openDocs").addEventListener("click", () => {
+        Redirect.dispatch(Redirect.Action.REMOTE, "https://procircle.io");
+      });
+
+      $("openSheet").addEventListener("click", () => {
+        Redirect.dispatch(Redirect.Action.REMOTE, "https://docs.google.com/spreadsheets/");
+      });
+
+      loadSettings();
+    })();
+  </script>
+</body>
+</html>
