@@ -19,6 +19,9 @@ import discountRoutes from "./routes/discounts.mjs";
 import webhookRoutes from "./routes/webhooks.mjs";
 import settingsRouter from "./routes/settings.mjs";
 
+import fs from "fs";
+import path from "path";
+
 // =============================================
 // 🚀 Server Setup
 // =============================================
@@ -75,29 +78,29 @@ app.use("/api/settings", settingsRouter);
 // =============================================
 // 🌟 Embedded Shopify Dashboard (Root route)
 // =============================================
-import path from "path";
+
 
 app.get("/", (req, res) => {
   const shop = req.query.shop || req.get("X-Shopify-Shop-Domain") || "";
   const host = req.query.host || "";
 
-  // Inject values into headers so dashboard.html can read them
+  // Inject values into headers so dashboard.html can read them if needed
   res.setHeader("X-ProCircle-Shop", shop);
   res.setHeader("X-ProCircle-Host", host);
-  res.setHeader("X-ProCircle-ApiKey", process.env.SHOPIFY_API_KEY);
 
-  // Serve the HTML dashboard
-  import fs from "fs";
-  import path from "path";
+  // Load HTML template
+  const htmlPath = path.join(process.cwd(), "server/views/dashboard.html");
+  let html = fs.readFileSync(htmlPath, "utf8");
 
-    const htmlPath = path.join(process.cwd(), "server/views/dashboard.html");
-    let html = fs.readFileSync(htmlPath, "utf8");
+  // Inject API key into <script data-api-key="">
+  html = html.replace(
+    `data-api-key=""`,
+    `data-api-key="${process.env.SHOPIFY_API_KEY}"`
+  );
 
-    // Inject the API key into the placeholder
-    html = html.replace("{{API_KEY}}", process.env.SHOPIFY_API_KEY);
-
-    // Return the processed HTML
-    res.send(html);
+  // Send it
+  res.send(html);
+});
 
 // =============================================
 // 🚀 Start server
