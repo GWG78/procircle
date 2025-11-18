@@ -89,7 +89,7 @@ app.get("/", (req, res) => {
   res.setHeader("X-ProCircle-Host", host);
 
   // Load HTML template
-  const htmlPath = path.join(process.cwd(), "server/views/dashboard.html");
+  const htmlPath = path.join(process.cwd(), "views/dashboard.html");
   let html = fs.readFileSync(htmlPath, "utf8");
 
   // Inject API key into <script data-api-key="">
