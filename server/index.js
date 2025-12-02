@@ -10,8 +10,7 @@ dotenv.config();
 import express from "express";
 import cookieParser from "cookie-parser";
 import session from "express-session";
-import { shopifyApi } from "@shopify/shopify-api";
-import { MemorySessionStorage } from "./memorySession.js";
+
 import "@shopify/shopify-api/adapters/node";
 
 import authRoutes from "./auth.mjs";
@@ -56,9 +55,6 @@ app.use((req, res, next) => {
   express.json()(req, res, next);
 });
 
-// =============================================
-// 🛍️ Shopify API Setup
-// =============================================
 
 
 // =============================================
