@@ -4,8 +4,6 @@ import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
 import { shopify } from "./shopify.js";
 
-import { shopify } from "./shopify.js"; // ← We will create this
-// This imports the SINGLE shared Shopify API instance
 
 dotenv.config();
 
