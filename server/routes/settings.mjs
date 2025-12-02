@@ -182,7 +182,7 @@ router.post("/", async (req, res) => {
  * Fetches Shopify smart + custom collections
  * ===========================================================
  */
-router.get("/collections", verifyShopifyAuth, async (req, res) => {
+router.get("/collections", async (req, res) => {
   try {
     const shopDomain = req.shop;
 
