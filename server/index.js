@@ -22,6 +22,8 @@ import settingsRouter from "./routes/settings.mjs";
 import fs from "fs";
 import path from "path";
 
+import { shopify } from "./shopify.js";
+
 // =============================================
 // 🚀 Server Setup
 // =============================================
@@ -57,34 +59,32 @@ app.use((req, res, next) => {
 // =============================================
 // 🛍️ Shopify API Setup
 // =============================================
-shopifyApi({
-  apiKey: process.env.SHOPIFY_API_KEY,
-  apiSecretKey: process.env.SHOPIFY_API_SECRET,
-  scopes: process.env.SHOPIFY_SCOPES.split(","),
-  hostName: process.env.APP_URL.replace(/https?:\/\//, ""),
-  apiVersion: process.env.SHOPIFY_API_VERSION || "2024-07",
-  isEmbeddedApp: true,
-  sessionStorage: new MemorySessionStorage(),
-});
+
 
 // =============================================
-// 🧩 Routes
+// 🧩 ROUTES
 // =============================================
+
+// 🔒 OAuth — MUST be mounted at /auth
 app.use("/auth", authRoutes);
+
+// Discount code API
 app.use("/api/discounts", discountRoutes);
+
+// Webhook receiver
 app.use("/api/webhooks", webhookRoutes);
+
+// Brand settings API
 app.use("/api/settings", settingsRouter);
 
 // =============================================
 // 🌟 Embedded Shopify Dashboard (Root route)
 // =============================================
 
-
 app.get("/", (req, res) => {
   const shop = req.query.shop || req.get("X-Shopify-Shop-Domain") || "";
   const host = req.query.host || "";
 
-  // Inject values into headers so dashboard.html can read them if needed
   res.setHeader("X-ProCircle-Shop", shop);
   res.setHeader("X-ProCircle-Host", host);
 
@@ -92,13 +92,11 @@ app.get("/", (req, res) => {
   const htmlPath = path.join(process.cwd(), "views/dashboard.html");
   let html = fs.readFileSync(htmlPath, "utf8");
 
-  // Inject API key into <script data-api-key="">
   html = html.replace(
     `data-api-key=""`,
     `data-api-key="${process.env.SHOPIFY_API_KEY}"`
   );
 
-  // Send it
   res.send(html);
 });
 

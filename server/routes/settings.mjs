@@ -33,6 +33,26 @@ function getDefaultSettings(shopId) {
 }
 
 /**
+ * -------------------------------------------------------------
+ * ✅ VALIDATION HELPERS (added by patch)
+ * -------------------------------------------------------------
+ */
+const ALLOWED_COUNTRIES = ["UK", "CH", "FR", "IT", "DE", "AT"];
+const ALLOWED_MEMBER_TYPES = [
+  "instructor",
+  "club_member",
+  "competitor",
+  "mountain_guide",
+];
+
+function sanitizeStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(v => (typeof v === "string" ? v.trim() : ""))
+    .filter(Boolean);
+}
+
+/**
  * ===========================================================
  * GET /api/settings
  * Returns existing settings or default structure
@@ -100,15 +120,47 @@ router.post("/", verifyShopifyAuth, async (req, res) => {
       allowedMemberTypes,
     } = req.body;
 
+    /**
+     * -----------------------------------------------------
+     * ✅ CLEAN + VALIDATED SETTINGS OBJECT (PATCHED)
+     * -----------------------------------------------------
+     */
     const clean = {
-      discountType: discountType || "percentage",
-      discountValue: Number(discountValue),
-      expiryDays: expiryDays ? Number(expiryDays) : null,
-      maxDiscounts: maxDiscounts ? Number(maxDiscounts) : null,
+      discountType: discountType === "fixed" ? "fixed" : "percentage",
+
+      discountValue: (() => {
+        const v = Number(discountValue);
+        if (isNaN(v) || v <= 0) return 1;
+        if (clean.discountType === "percentage" && v > 100) return 100;
+        return v;
+      })(),
+
+      expiryDays: (() => {
+        if (!expiryDays && expiryDays !== 0) return null;
+        const v = Number(expiryDays);
+        if (isNaN(v) || v < 1) return 1;
+        if (v > 365) return 365;
+        return Math.round(v);
+      })(),
+
+      maxDiscounts: (() => {
+        if (!maxDiscounts && maxDiscounts !== 0) return null;
+        const v = Number(maxDiscounts);
+        if (isNaN(v) || v < 1) return null;
+        return Math.round(v);
+      })(),
+
       oneTimeUse: !!oneTimeUse,
-      categories: Array.isArray(categories) ? categories : [],
-      allowedCountries: Array.isArray(allowedCountries) ? allowedCountries : [],
-      allowedMemberTypes: Array.isArray(allowedMemberTypes) ? allowedMemberTypes : [],
+
+      categories: sanitizeStringArray(categories),
+
+      allowedCountries: sanitizeStringArray(allowedCountries).filter(c =>
+        ALLOWED_COUNTRIES.includes(c)
+      ),
+
+      allowedMemberTypes: sanitizeStringArray(allowedMemberTypes).filter(t =>
+        ALLOWED_MEMBER_TYPES.includes(t)
+      ),
     };
 
     const updated = await prisma.shopSettings.upsert({
@@ -149,7 +201,6 @@ router.get("/collections", verifyShopifyAuth, async (req, res) => {
       },
     });
 
-    // Fetch collections concurrently
     const [customRes, smartRes] = await Promise.all([
       client.get({ path: "custom_collections", query: { limit: 250 } }),
       client.get({ path: "smart_collections", query: { limit: 250 } }),
