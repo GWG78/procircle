@@ -5,7 +5,15 @@ import prisma from "../prismaClient.js";
 import { shopifyApi } from "@shopify/shopify-api";
 import "@shopify/shopify-api/adapters/node";
 
+
 const router = express.Router();
+
+// Extract ?shop= from query and attach to req.shop
+router.use((req, res, next) => {
+  const shop = req.query.shop || req.headers["x-shopify-shop-domain"];
+  req.shop = shop;
+  next();
+});
 
 // Shopify API (matches index.js)
 const shopify = shopifyApi({
