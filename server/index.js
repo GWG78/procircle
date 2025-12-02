@@ -29,6 +29,8 @@ import { shopify } from "./shopify.js";
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+console.log("🔧 Loading index.js");
+
 app.use(cookieParser());
 app.set("trust proxy", 1);
 
@@ -55,7 +57,9 @@ app.use((req, res, next) => {
   express.json()(req, res, next);
 });
 
-
+console.log("🔧 Mounting auth routes…");
+app.use("/", authRoutes);
+console.log("🔧 Auth routes mounted!");
 
 // =============================================
 // 🧩 ROUTES
