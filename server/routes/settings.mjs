@@ -1,7 +1,7 @@
 // server/routes/settings.mjs
 import express from "express";
 import prisma from "../prismaClient.js";
-import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
+//import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
 import { shopifyApi } from "@shopify/shopify-api";
 import "@shopify/shopify-api/adapters/node";
 
@@ -58,7 +58,7 @@ function sanitizeStringArray(value) {
  * Returns existing settings or default structure
  * ===========================================================
  */
-router.get("/", verifyShopifyAuth, async (req, res) => {
+router.get("/", async (req, res) => {
   try {
     const shopDomain = req.shop;
 
@@ -97,7 +97,7 @@ router.get("/", verifyShopifyAuth, async (req, res) => {
  * Saves settings to DB
  * ===========================================================
  */
-router.post("/", verifyShopifyAuth, async (req, res) => {
+router.post("/", async (req, res) => {
   try {
     const shopDomain = req.shop;
 

@@ -57,16 +57,15 @@ app.use((req, res, next) => {
   express.json()(req, res, next);
 });
 
-console.log("🔧 Mounting auth routes…");
-app.use("/", authRoutes);
-console.log("🔧 Auth routes mounted!");
+
 
 // =============================================
 // 🧩 ROUTES
 // =============================================
 
-// 🔒 OAuth — MUST be mounted at /auth
-app.use("/auth", authRoutes);
+console.log("🔧 Mounting auth routes…");
+app.use("/", authRoutes);
+console.log("🔧 Auth routes mounted!");
 
 // Discount code API
 app.use("/api/discounts", discountRoutes);

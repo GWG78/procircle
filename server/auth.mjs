@@ -101,3 +101,5 @@ router.get("/auth/callback", async (req, res) => {
 });
 
 export default router;
+
+console.log("AUTH.MJS LOADED");
