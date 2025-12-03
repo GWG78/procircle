@@ -1,7 +1,7 @@
 // server/routes/discounts.mjs
 import express from "express";
 import { PrismaClient } from "@prisma/client";
-import { shopifyApi } from "@shopify/shopify-api";
+//import { shopifyApi } from "@shopify/shopify-api";
 import { generateDiscountCode } from "../utils/generateCode.js";
 
 const prisma = new PrismaClient();
@@ -23,7 +23,7 @@ router.use((req, res, next) => {
 
 /* ============================================================
    2. SHOPIFY API CLIENT
-   ============================================================ */
+   ============================================================ 
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
@@ -31,7 +31,7 @@ const shopify = shopifyApi({
   hostName: process.env.APP_URL.replace(/https?:\/\//, ""),
   apiVersion: "2024-10",
   isEmbeddedApp: true,
-});
+});*/
 
 /* ============================================================
    3. PAYLOAD VALIDATION
@@ -214,12 +214,7 @@ router.post("/create", async (req, res) => {
       },
     };
 
-    const gqlClient = new shopify.clients.Graphql({
-      session: {
-        shop: shop.shopDomain,
-        accessToken: shop.accessToken,
-      },
-    });
+   
 
     const gqlRes = await gqlClient.query({
       data: {

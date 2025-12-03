@@ -3,7 +3,7 @@ import fetch from "node-fetch";
 
 /**
  * Create a percentage discount in Shopify using GraphQL Admin API
- */
+ 
 export async function createShopifyDiscount({
   shopDomain,
   accessToken,
@@ -99,4 +99,4 @@ export async function createShopifyDiscount({
     json.data?.discountAutomaticAppCreate?.automaticAppDiscount?.id;
 
   return { success: true, id: discountId };
-}
+}*/
