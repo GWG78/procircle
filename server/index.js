@@ -27,11 +27,6 @@ import { shopify } from "./shopify.js";
 // 🚀 Server Setup
 // =============================================
 const app = express();
-const PORT = process.env.PORT || 3001;
-
-console.log("🔧 Loading index.js");
-
-app.use(cookieParser());
 
 app.use((req, res, next) => {
   const shopOrigin = "https://admin.shopify.com";
@@ -47,6 +42,12 @@ app.use((req, res, next) => {
 
   next();
 });
+
+const PORT = process.env.PORT || 3001;
+
+console.log("🔧 Loading index.js");
+
+app.use(cookieParser());
 
 app.set("trust proxy", 1);
 

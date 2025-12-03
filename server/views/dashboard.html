@@ -259,6 +259,18 @@
         }
       }
 
+      if (!s || !s.allowedCountries) {
+        setChecked("allowedCountries", ["UK","CH","FR","IT","DE","AT"]);
+      }
+      if (!s || !s.allowedMemberTypes) {
+        setChecked("allowedMemberTypes", [
+          "instructor",
+          "club_member",
+          "competitor",
+          "mountain_guide"
+        ]);
+      }
+
       /** Load collections from Shopify */
       async function loadCollections(selected) {
         try {
