@@ -215,13 +215,13 @@ router.post("/create", async (req, res) => {
     };
 
    
-
+/*
     const gqlRes = await gqlClient.query({
       data: {
         query: DISCOUNT_MUTATION,
         variables: { basicCodeDiscount: gqlInput },
       },
-    });
+    });*/
 
     const userErrors =
       gqlRes?.body?.data?.discountCodeAppCreate?.userErrors || [];
