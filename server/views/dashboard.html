@@ -181,15 +181,12 @@
   <div id="toast" class="Toast"></div>
 
   <!-- API KEY injection from server -->
-  <script id="procircle-env" data-api-key="{{API_KEY}}"></script>
+  <script id="procircle-env" data-api-key=""></script>
 
   <script>
   (function() {
     // Read API key from server header
-    const apiKey =
-      document.currentScript.getAttribute("data-api-key") ||
-      (document.head.querySelector("meta[name='x-procircle-apikey']")?.content) ||
-      "";
+    const apiKey = document.getElementById("procircle-env")?.dataset.apiKey || "";
 
     const params = new URLSearchParams(window.location.search);
     const shop = params.get("shop");
@@ -269,15 +266,7 @@
         $("oneTimeUse").checked =
           typeof s.oneTimeUse === "boolean" ? s.oneTimeUse : true;
 
-        // allowed countries – if empty/null, keep defaults
-        if (s.allowedCountries && s.allowedCountries.length) {
-          setChecked("allowedCountries", s.allowedCountries);
-        }
-
-        // allowed member types – if empty/null, keep defaults
-        if (s.allowedMemberTypes && s.allowedMemberTypes.length) {
-          setChecked("allowedMemberTypes", s.allowedMemberTypes);
-        }
+      
 
         await loadCollections(s.categories || []);
       } catch (err) {
