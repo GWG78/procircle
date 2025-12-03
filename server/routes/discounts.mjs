@@ -22,44 +22,28 @@ router.use((req, res, next) => {
 });
 
 /* ============================================================
-   2. Setup Shopify API Client
+   2. Setup Shopify API (GraphQL)
    ============================================================ */
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
   scopes: process.env.SHOPIFY_SCOPES.split(","),
   hostName: process.env.APP_URL.replace(/https?:\/\//, ""),
-  apiVersion: process.env.SHOPIFY_API_VERSION || "2024-07",
+  apiVersion: "2024-10",
   isEmbeddedApp: true,
 });
 
 /* ============================================================
-   3. Payload Validation
+   3. Validate incoming payload
    ============================================================ */
 function validateDiscountPayload(body) {
   const errors = [];
+  const amount = Number(body.amount);
 
-  if (!body.shopDomain) errors.push("shopDomain is required");
-  if (!body.userId) errors.push("userId is required");
-  if (!body.email) errors.push("email is required");
-
-  const type = "percentage"; // force percentage-only
-
-  let amount = Number(body.amount);
-  if (isNaN(amount) || amount <= 0) {
-    errors.push("amount must be a positive number");
-  }
-  if (amount > 100) amount = 100;
-
-  const expiryDays =
-    body.expiryDays !== undefined && body.expiryDays !== null
-      ? Math.max(1, Math.min(365, Number(body.expiryDays)))
-      : null;
-
-  const maxDiscounts =
-    body.maxDiscounts !== undefined && body.maxDiscounts !== null
-      ? Math.max(1, Number(body.maxDiscounts))
-      : null;
+  if (!body.shopDomain) errors.push("shopDomain required");
+  if (!body.userId) errors.push("userId required");
+  if (!body.email) errors.push("email required");
+  if (isNaN(amount) || amount <= 0) errors.push("Invalid amount");
 
   return {
     errors,
@@ -68,10 +52,10 @@ function validateDiscountPayload(body) {
       userId: body.userId,
       email: body.email,
       name: body.name || "",
-      type,
       amount,
-      expiryDays,
-      maxDiscounts,
+      type: "percentage", // forced
+      expiryDays: body.expiryDays ?? null,
+      maxDiscounts: body.maxDiscounts ?? null,
       oneTimeUse: !!body.oneTimeUse,
       categories: Array.isArray(body.categories) ? body.categories : [],
       allowedCountries: Array.isArray(body.allowedCountries)
@@ -85,115 +69,91 @@ function validateDiscountPayload(body) {
 }
 
 /* ============================================================
-   Helper: Create Shopify Discount via GraphQL
+   4. Get Shopify GraphQL client
    ============================================================ */
-async function createShopifyDiscount(client, code, clean, expiryIso) {
-  const mutation = `
-    mutation discountCodeBasicCreate($discount: DiscountCodeBasicInput!) {
-      discountCodeBasicCreate(basicCodeDiscount: $discount) {
-        codeDiscountNode {
-          id
-        }
-        userErrors {
-          field
-          message
-        }
-      }
-    }
-  `;
-
-  const variables = {
-    discount: {
-      title: `ProCircle-${code}`,
-      code,
-      startsAt: new Date().toISOString(),
-      endsAt: expiryIso,
-      usageLimit: clean.oneTimeUse ? 1 : null,
-      appliesOncePerCustomer: clean.oneTimeUse,
-      customerSelection: { all: true },
-
-      customerGets: {
-        value: {
-          percentageValue: clean.amount,
-        },
-        items: clean.categories.length
-          ? {
-              collections: clean.categories.map((id) => ({ id })),
-            }
-          : {
-              all: true,
-            },
-      },
-    },
-  };
-
-  return client.query({
-    data: {
-      query: mutation,
-      variables,
+function getGQLClient(shop, accessToken) {
+  return new shopify.clients.Graphql({
+    session: {
+      shop,
+      accessToken,
     },
   });
 }
 
 /* ============================================================
-   4. MAIN ENDPOINT — POST /api/discounts/create
+   5. Convert category handles → Shopify GraphQL IDs
+   ============================================================ */
+async function fetchCollectionIds(shopDomain, accessToken, handles) {
+  if (!handles?.length) return [];
+
+  const client = new shopify.clients.Graphql({
+    session: { shop: shopDomain, accessToken },
+  });
+
+  const ids = [];
+
+  for (const handle of handles) {
+    const query = `
+      query GetCollection($handle: String!) {
+        collection(handle: $handle) {
+          id
+        }
+      }
+    `;
+
+    const result = await client.query({
+      data: { query, variables: { handle } },
+    });
+
+    const id = result?.body?.data?.collection?.id;
+    if (id) ids.push(id);
+  }
+
+  return ids;
+}
+
+/* ============================================================
+   6. MAIN ENDPOINT — POST /api/discounts/create
    ============================================================ */
 router.post("/create", async (req, res) => {
   try {
-    /* ----------------- Step 1: Validate ----------------- */
-    const { errors, clean } = validateDiscountPayload(req.body || {});
+    // Step 1 — Validate
+    const { errors, clean } = validateDiscountPayload(req.body);
     if (errors.length) {
-      return res.status(400).json({
-        success: false,
-        error: "Validation failed",
-        details: errors,
-      });
+      return res.status(400).json({ success: false, error: errors.join(", ") });
     }
 
-    /* ----------------- Step 2: Load shop + settings ----------------- */
+    // Step 2 — Load shop + settings
     const shop = await prisma.shop.findUnique({
       where: { shopDomain: clean.shopDomain },
       include: { settings: true },
     });
 
     if (!shop) {
-      return res.status(404).json({
-        success: false,
-        error: "Shop not found",
-      });
+      return res.status(404).json({ success: false, error: "Shop not found" });
     }
 
-    const s = shop.settings || {};
+    const settings = shop.settings || {};
 
-    /* ----------------- Step 3: Eligibility Gates ----------------- */
-
-    // Country check
-    if (s.allowedCountries?.length > 0) {
-      if (!clean.allowedCountries?.some((c) => s.allowedCountries.includes(c))) {
-        return res.status(403).json({
-          success: false,
-          error: "Country not allowed",
-        });
+    // Step 3 — Eligibility Checks
+    if (settings.allowedCountries?.length) {
+      if (!clean.allowedCountries.some(c => settings.allowedCountries.includes(c))) {
+        return res.status(403).json({ success: false, error: "Country not allowed" });
       }
     }
 
-    // Member type check
-    if (s.allowedMemberTypes?.length > 0) {
-      if (
-        !clean.allowedMemberTypes?.some((t) =>
-          s.allowedMemberTypes.includes(t)
-        )
-      ) {
-        return res.status(403).json({
-          success: false,
-          error: "Member type not allowed",
-        });
+    if (settings.allowedMemberTypes?.length) {
+      if (!clean.allowedMemberTypes.some(t => settings.allowedMemberTypes.includes(t))) {
+        return res.status(403).json({ success: false, error: "Member type not allowed" });
       }
     }
 
-    /* ----------------- Step 4: Prevent duplicate codes ----------------- */
+    // Step 4 — Prevent user duplicates
     const existing = await prisma.discount.findFirst({
-      where: { userId: clean.userId, shopId: shop.id },
+      where: {
+        shopId: shop.id,
+        userId: clean.userId,
+      },
     });
 
     if (existing) {
@@ -203,69 +163,113 @@ router.post("/create", async (req, res) => {
       });
     }
 
-    /* ----------------- Step 5: MaxDiscounts enforcement ----------------- */
-    if (s.maxDiscounts && s.maxDiscounts > 0) {
+    // Max limits
+    if (settings.maxDiscounts) {
       const issued = await prisma.discount.count({
         where: { shopId: shop.id },
       });
-
-      if (issued >= s.maxDiscounts) {
+      if (issued >= settings.maxDiscounts) {
         return res.status(429).json({
           success: false,
-          error: "Maximum number of discount codes reached",
+          error: "Max number of discounts reached",
         });
       }
     }
 
-    /* ----------------- Step 6: Prepare Shopify client ----------------- */
-    const client = new shopify.clients.Graphql({
-      session: {
-        shop: shop.shopDomain,
-        accessToken: shop.accessToken,
-      },
-    });
+    // Step 5 — Lookup collection IDs
+    const collectionIds = await fetchCollectionIds(
+      shop.shopDomain,
+      shop.accessToken,
+      settings.categories
+    );
 
-    /* ----------------- Step 7: Generate discount code ----------------- */
+    // Step 6 — Build discount code
     const code = generateDiscountCode(clean.name);
 
-    const expiryDays = clean.expiryDays ?? s.expiryDays ?? 30;
-    const expiryIso = new Date(Date.now() + expiryDays * 86400000).toISOString();
+    const startsAt = new Date().toISOString();
+    const expiryDays = clean.expiryDays ?? settings.expiryDays ?? 30;
+    const endsAt = new Date(Date.now() + expiryDays * 86400000).toISOString();
 
-    /* ----------------- Step 8: Create in Shopify via GraphQL ----------------- */
-    const gql = await createShopifyDiscount(client, code, clean, expiryIso);
+    // Step 7 — GraphQL mutation
+    const gql = getGQLClient(shop.shopDomain, shop.accessToken);
 
-    const userErrors =
-      gql?.body?.data?.discountCodeBasicCreate?.userErrors || [];
+    const mutation = `
+      mutation CreateBasicDiscount($discount: DiscountCodeBasicInput!) {
+        discountCodeBasicCreate(basicCodeDiscount: $discount) {
+          codeDiscountNode {
+            id
+            codeDiscount {
+              ... on DiscountCodeBasic {
+                title
+                codes { code }
+              }
+            }
+          }
+          userErrors { field message }
+        }
+      }
+    `;
 
-    if (userErrors.length > 0) {
-      console.error("❌ Shopify GraphQL errors:", userErrors);
+    const variables = {
+      discount: {
+        title: `ProCircle ${code}`,
+        code,
+        startsAt,
+        endsAt,
+        customerSelection: { all: true },
+        appliesOncePerCustomer: clean.oneTimeUse,
+        usageLimit: clean.oneTimeUse ? 1 : null,
+        combinesWith: {
+          productDiscounts: true,
+          orderDiscounts: false,
+          shippingDiscounts: false,
+        },
+        customerGets: {
+          value: {
+            percentageValue: clean.amount,
+          },
+          items: collectionIds.length
+            ? { collections: { add: collectionIds } }
+            : { all: true },
+        },
+      },
+    };
+
+    const response = await gql.query({ data: { query: mutation, variables } });
+
+    const errorsGQL =
+      response?.body?.data?.discountCodeBasicCreate?.userErrors;
+
+    if (errorsGQL?.length) {
       return res.status(400).json({
         success: false,
-        error: "Shopify API error",
-        details: userErrors.map((e) => e.message),
+        error: "Shopify rejected the discount",
+        details: errorsGQL,
       });
     }
 
-    /* ----------------- Step 9: Save in Prisma ----------------- */
+    // Extract code (Shopify returns it)
+    const savedCode =
+      response.body.data.discountCodeBasicCreate.codeDiscountNode
+        .codeDiscount.codes[0].code;
+
+    // Step 8 — Save in DB
     const saved = await prisma.discount.create({
       data: {
         shopId: shop.id,
         userId: clean.userId,
         email: clean.email,
-        code,
-        type: clean.type,
+        code: savedCode,
+        type: "percentage",
         amount: clean.amount,
-        expiresAt: new Date(expiryIso),
+        expiresAt: new Date(endsAt),
       },
     });
 
-    /* ----------------- Step 10: Return ----------------- */
-    return res.json({
-      success: true,
-      discount: saved,
-    });
+    return res.json({ success: true, discount: saved });
+
   } catch (err) {
-    console.error("❌ Discount creation error:", err);
+    console.error("❌ Discount creation failed:", err);
     return res.status(500).json({
       success: false,
       error: "Shopify discount creation failed",
