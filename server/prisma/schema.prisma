@@ -36,6 +36,9 @@ model Discount {
   orderId        String?
   orderAmount    Float?
 
+  userId         String
+  email          String?
+
   active          Boolean   @default(true)
 
 }

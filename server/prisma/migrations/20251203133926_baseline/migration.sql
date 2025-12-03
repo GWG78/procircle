@@ -7,6 +7,7 @@ CREATE TABLE "Shop" (
     "installed" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "uninstalledAt" TIMESTAMP(3),
 
     CONSTRAINT "Shop_pkey" PRIMARY KEY ("id")
 );
@@ -24,6 +25,7 @@ CREATE TABLE "Discount" (
     "redeemedAt" TIMESTAMP(3),
     "orderId" TEXT,
     "orderAmount" DOUBLE PRECISION,
+    "active" BOOLEAN NOT NULL DEFAULT true,
 
     CONSTRAINT "Discount_pkey" PRIMARY KEY ("id")
 );
@@ -36,9 +38,12 @@ CREATE TABLE "ShopSettings" (
     "discountValue" DOUBLE PRECISION NOT NULL DEFAULT 10,
     "expiryDays" INTEGER,
     "maxDiscounts" INTEGER,
-    "appliesTo" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "allowedCountries" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "allowedMemberTypes" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "categories" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "oneTimeUse" BOOLEAN NOT NULL DEFAULT true,
 
     CONSTRAINT "ShopSettings_pkey" PRIMARY KEY ("id")
 );

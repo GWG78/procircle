@@ -43,27 +43,23 @@ function validateDiscountPayload(body) {
   if (!body.userId) errors.push("userId is required");
   if (!body.email) errors.push("email is required");
 
-  // Force type into one of the allowed values
+  // Only two valid types — percentage is default
   const type = body.type === "fixed" ? "fixed" : "percentage";
 
   // Clean amount
   let amount = Number(body.amount);
-  if (isNaN(amount) || amount <= 0) {
-    errors.push("amount must be a positive number");
-  }
-  if (type === "percentage" && amount > 100) {
-    amount = 100; // clamp
-  }
+  if (isNaN(amount) || amount <= 0) errors.push("amount must be a positive number");
+  if (type === "percentage" && amount > 100) amount = 100;
 
-  // expiryDays: 1–365 or null
+  // expiryDays: null, or 1–365
   let expiryDays =
-    body.expiryDays === null || body.expiryDays === undefined
+    body.expiryDays == null
       ? null
       : Math.max(1, Math.min(365, Number(body.expiryDays) || 1));
 
-  // maxDiscounts: positive integer or null
+  // maxDiscounts: null, or integer ≥ 1
   let maxDiscounts =
-    body.maxDiscounts === null || body.maxDiscounts === undefined
+    body.maxDiscounts == null
       ? null
       : Math.max(1, Number(body.maxDiscounts) || 1);
 
@@ -117,7 +113,6 @@ router.post("/create", async (req, res) => {
        Step 3: Eligibility checks based on ADMIN SETTINGS
        ----------------------------------------------------- */
 
-    // Allowed country check
     if (s.allowedCountries?.length) {
       if (!clean.allowedCountries?.some(c => s.allowedCountries.includes(c))) {
         return res.status(403).json({
@@ -127,7 +122,6 @@ router.post("/create", async (req, res) => {
       }
     }
 
-    // Allowed member types
     if (s.allowedMemberTypes?.length) {
       if (!clean.allowedMemberTypes?.some(t => s.allowedMemberTypes.includes(t))) {
         return res.status(403).json({
@@ -135,12 +129,6 @@ router.post("/create", async (req, res) => {
           error: "Member type not allowed",
         });
       }
-    }
-
-    // Collections
-    let applicableCollections = [];
-    if (s.categories?.length) {
-      applicableCollections = [...s.categories];
     }
 
     /* -----------------------------------------------------
@@ -174,7 +162,16 @@ router.post("/create", async (req, res) => {
       }
     }
 
-    /* -------- Step 5: Prepare Shopify API client -------- */
+    /* -----------------------------------------------------
+       Step 5: Convert collection handles → Shopify GIDs
+       ----------------------------------------------------- */
+    let applicableCollections = [];
+
+    if (s.categories?.length) {
+      applicableCollections = await getCollectionIds(shop, s.categories);
+    }
+
+    /* -------- Step 6: Prepare Shopify API client -------- */
     const client = new shopify.clients.Rest({
       session: {
         shop: shop.shopDomain,
@@ -182,44 +179,48 @@ router.post("/create", async (req, res) => {
       },
     });
 
-    /* -------- Step 6: Generate code -------- */
+    /* -------- Step 7: Generate code -------- */
     const code = generateDiscountCode(clean.name);
     const startsAt = new Date().toISOString();
 
-    const expiry =
-      s.expiryDays || clean.expiryDays
-        ? new Date(Date.now() + (s.expiryDays || clean.expiryDays) * 86400000).toISOString()
-        : null;
+    const expiryDays = clean.expiryDays ?? s.expiryDays ?? 30;
+    const expiryIso = new Date(Date.now() + expiryDays * 86400000).toISOString();
 
     /* -----------------------------------------------------
-       Step 7: Create DISCOUNT via Shopify 2024 API
-       (Automatic + Code)
+       Step 8: Create DISCOUNT via Shopify Discounts API
        ----------------------------------------------------- */
-
     const discountPayload = {
       discount: {
         title: `ProCircle-${code}`,
         code,
+        starts_at: startsAt,
+        ends_at: expiryIso,
+        usage_limit: clean.oneTimeUse ? 1 : null,
+        customer_selection: { all: true },
+
+        // 🔥 Discount value
+        value:
+          clean.type === "percentage"
+            ? { percentage: { value: clean.amount } }
+            : { fixed_amount: { amount: clean.amount, currency_code: "GBP" } },
+
+        // 🔥 Apply to ALL products OR selected collections
+        applies_to: applicableCollections.length
+          ? {
+              collections: applicableCollections.map(id => ({
+                collection_id: id,
+              })),
+            }
+          : {
+              all: true,
+            },
+
         combines_with: {
           product_discounts: true,
           order_discounts: false,
           shipping_discounts: false,
         },
-        starts_at: startsAt,
-        ends_at: expiry,
-        usage_limit: clean.oneTimeUse ? 1 : null,
-        customer_selection: { all: true },
-        // Value section
-        value: clean.type === "percentage"
-          ? { percentage: { value: clean.amount } }
-          : { fixed_amount: { amount: clean.amount, currency_code: "GBP" } },
-
-        // Collections restriction
-        entitled_collection_ids: applicableCollections.length ? applicableCollections : [],
-
-        // Applies to all products if no collections defined
-        applies_to_each_item: !applicableCollections.length,
-      }
+      },
     };
 
     const shopifyRes = await client.post({
@@ -228,7 +229,7 @@ router.post("/create", async (req, res) => {
       type: "application/json",
     });
 
-    /* -------- Step 8: Save locally -------- */
+    /* -------- Step 9: Save locally -------- */
     const saved = await prisma.discount.create({
       data: {
         shopId: shop.id,
@@ -236,7 +237,7 @@ router.post("/create", async (req, res) => {
         code,
         type: clean.type,
         amount: clean.amount,
-        expiresAt: expiry ? new Date(expiry) : null,
+        expiresAt: new Date(expiryIso),
       },
     });
 
@@ -247,7 +248,6 @@ router.post("/create", async (req, res) => {
 
   } catch (err) {
     console.error("❌ Discount creation error:", err);
-
     return res.status(500).json({
       success: false,
       error: "Shopify discount creation failed",
@@ -255,5 +255,35 @@ router.post("/create", async (req, res) => {
     });
   }
 });
+
+/* ============================================================
+   Collection Handle → Shopify GID lookup
+   ============================================================ */
+async function getCollectionIds(shop, handles) {
+  if (!handles || handles.length === 0) return [];
+
+  const client = new shopify.clients.Rest({
+    session: {
+      shop: shop.shopDomain,
+      accessToken: shop.accessToken,
+    },
+  });
+
+  const results = [];
+
+  for (const handle of handles) {
+    const res = await client.get({
+      path: "collections",
+      query: { handle },
+    });
+
+    const c = res.body?.collection;
+    if (c?.id) {
+      results.push(`gid://shopify/Collection/${c.id}`);
+    }
+  }
+
+  return results;
+}
 
 export default router;
