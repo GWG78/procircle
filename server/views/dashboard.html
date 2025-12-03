@@ -333,7 +333,23 @@
           return showToast("Failed to save settings", true);
         }
 
-        showToast("Settings saved!");
+        // Visual "Saved" feedback on button
+          const saveBtn = $("saveSettings");
+          const originalText = saveBtn.textContent;
+
+          saveBtn.disabled = true;
+          saveBtn.textContent = "Saved!";
+          saveBtn.style.background = "#027a52"; // darker green
+
+          setTimeout(() => {
+            saveBtn.disabled = false;
+            saveBtn.textContent = originalText;
+            saveBtn.style.background = "#008060";
+          }, 1500);
+
+          // Toast too (optional)
+          showToast("Settings saved!");
+
       } catch (err) {
         console.error("Error saving settings", err);
         showToast("Error saving settings", true);

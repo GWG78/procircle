@@ -95,80 +95,86 @@ function validateDiscountPayload(body) {
    ============================================================ */
 router.post("/create", async (req, res) => {
   try {
-    /* -------------- Step 1: Validate Payload -------------- */
+    /* -------- Step 1: Validate payload -------- */
     const { errors, clean } = validateDiscountPayload(req.body || {});
     if (errors.length) {
-      return res.status(400).json({
-        success: false,
-        error: "Validation failed",
-        details: errors,
-      });
+      return res.status(400).json({ success: false, error: errors.join(", ") });
     }
 
-    /* -------------- Step 2: Load Shop + Settings ----------- */
+    /* -------- Step 2: Load shop + settings -------- */
     const shop = await prisma.shop.findUnique({
       where: { shopDomain: clean.shopDomain },
       include: { settings: true },
     });
 
     if (!shop) {
-      return res.status(404).json({
-        success: false,
-        error: "Shop not found",
-      });
+      return res.status(404).json({ success: false, error: "Shop not found" });
     }
 
-    const settings = shop.settings || {};
+    const s = shop.settings || {};
 
-    /* ======================================================
-       Step 3 — SERVER-SIDE PROTECTION:
-       - Prevent duplicate code for same user + shop  
-       - Enforce maxDiscounts
-       ====================================================== */
+    /* -----------------------------------------------------
+       Step 3: Eligibility checks based on ADMIN SETTINGS
+       ----------------------------------------------------- */
 
-    // Prevent user having >1 code per shop
+    // Allowed country check
+    if (s.allowedCountries?.length) {
+      if (!clean.allowedCountries?.some(c => s.allowedCountries.includes(c))) {
+        return res.status(403).json({
+          success: false,
+          error: "Country not allowed",
+        });
+      }
+    }
+
+    // Allowed member types
+    if (s.allowedMemberTypes?.length) {
+      if (!clean.allowedMemberTypes?.some(t => s.allowedMemberTypes.includes(t))) {
+        return res.status(403).json({
+          success: false,
+          error: "Member type not allowed",
+        });
+      }
+    }
+
+    // Collections
+    let applicableCollections = [];
+    if (s.categories?.length) {
+      applicableCollections = [...s.categories];
+    }
+
+    /* -----------------------------------------------------
+       Step 4: Prevent duplicates / enforce maxDiscounts
+       ----------------------------------------------------- */
+
     const existing = await prisma.discount.findFirst({
       where: {
-        shopId: shop.id,
         userId: clean.userId,
+        shopId: shop.id,
       },
     });
 
     if (existing) {
       return res.status(409).json({
         success: false,
-        error: "User already has a discount code for this shop",
+        error: "User already has a discount",
       });
     }
 
-    // MaxDiscounts enforcement
-    if (settings.maxDiscounts && settings.maxDiscounts > 0) {
-      const totalIssued = await prisma.discount.count({
+    if (s.maxDiscounts && s.maxDiscounts > 0) {
+      const issued = await prisma.discount.count({
         where: { shopId: shop.id },
       });
 
-      if (totalIssued >= settings.maxDiscounts) {
+      if (issued >= s.maxDiscounts) {
         return res.status(429).json({
           success: false,
-          error: "Maximum number of discount codes has been reached",
+          error: "Max number of discounts reached",
         });
       }
     }
 
-    /* -------------- Step 4: Expiry Calculation ------------ */
-    const expiryDays =
-      clean.expiryDays ??
-      settings.expiryDays ??
-      30; // fallback if needed
-
-    const expiryDate = new Date(
-      Date.now() + expiryDays * 24 * 60 * 60 * 1000
-    );
-
-    /* -------------- Step 5: Create in Shopify ------------- */
-
-    const code = generateDiscountCode(clean.name);
-
+    /* -------- Step 5: Prepare Shopify API client -------- */
     const client = new shopify.clients.Rest({
       session: {
         shop: shop.shopDomain,
@@ -176,62 +182,76 @@ router.post("/create", async (req, res) => {
       },
     });
 
-    // Create price rule
-    const priceRuleRes = await client.post({
-      path: "price_rules",
-      data: {
-        price_rule: {
-          title: `ProCircle-${code}`,
-          target_type: "line_item",
-          target_selection: "all",
-          allocation_method: "across",
-          value_type: clean.type === "percentage" ? "percentage" : "fixed_amount",
-          value: clean.type === "percentage"
-            ? `-${clean.amount}`
-            : `-${clean.amount}`,
-          once_per_customer: clean.oneTimeUse,
-          usage_limit: clean.oneTimeUse ? 1 : null,
-          customer_selection: "all",
-          starts_at: new Date().toISOString(),
-          ends_at: expiryDate.toISOString(),
+    /* -------- Step 6: Generate code -------- */
+    const code = generateDiscountCode(clean.name);
+    const startsAt = new Date().toISOString();
+
+    const expiry =
+      s.expiryDays || clean.expiryDays
+        ? new Date(Date.now() + (s.expiryDays || clean.expiryDays) * 86400000).toISOString()
+        : null;
+
+    /* -----------------------------------------------------
+       Step 7: Create DISCOUNT via Shopify 2024 API
+       (Automatic + Code)
+       ----------------------------------------------------- */
+
+    const discountPayload = {
+      discount: {
+        title: `ProCircle-${code}`,
+        code,
+        combines_with: {
+          product_discounts: true,
+          order_discounts: false,
+          shipping_discounts: false,
         },
-      },
+        starts_at: startsAt,
+        ends_at: expiry,
+        usage_limit: clean.oneTimeUse ? 1 : null,
+        customer_selection: { all: true },
+        // Value section
+        value: clean.type === "percentage"
+          ? { percentage: { value: clean.amount } }
+          : { fixed_amount: { amount: clean.amount, currency_code: "GBP" } },
+
+        // Collections restriction
+        entitled_collection_ids: applicableCollections.length ? applicableCollections : [],
+
+        // Applies to all products if no collections defined
+        applies_to_each_item: !applicableCollections.length,
+      }
+    };
+
+    const shopifyRes = await client.post({
+      path: "discounts",
+      data: discountPayload,
       type: "application/json",
     });
 
-    const priceRuleId = priceRuleRes.body.price_rule.id;
-
-    // Create discount code in that rule
-    const discountRes = await client.post({
-      path: `price_rules/${priceRuleId}/discount_codes`,
-      data: { discount_code: { code } },
-      type: "application/json",
-    });
-
-    /* -------------- Step 6: Save Locally ------------------ */
-    const discount = await prisma.discount.create({
+    /* -------- Step 8: Save locally -------- */
+    const saved = await prisma.discount.create({
       data: {
         shopId: shop.id,
         userId: clean.userId,
         code,
-        amount: clean.amount,
         type: clean.type,
-        expiresAt: expiryDate,
+        amount: clean.amount,
+        expiresAt: expiry ? new Date(expiry) : null,
       },
     });
 
-    /* -------------- Step 7: Final Response ---------------- */
     return res.json({
       success: true,
-      discount,
+      discount: saved,
     });
 
-  } catch (error) {
-    console.error("❌ Discount creation failed:", error);
+  } catch (err) {
+    console.error("❌ Discount creation error:", err);
+
     return res.status(500).json({
       success: false,
-      error: "Failed to create discount",
-      details: error.message,
+      error: "Shopify discount creation failed",
+      details: err.message,
     });
   }
 });
