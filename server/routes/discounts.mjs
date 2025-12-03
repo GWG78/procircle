@@ -7,6 +7,13 @@ import { generateDiscountCode } from "../utils/generateCode.js";
 const prisma = new PrismaClient();
 const router = express.Router();
 
+router.get("/debug-file", (req, res) => {
+  res.json({
+    file: "discounts.mjs is LIVE",
+    timestamp: new Date().toISOString()
+  });
+});
+
 /* ============================================================
    1. INTERNAL API KEY VALIDATION
    ============================================================ */
