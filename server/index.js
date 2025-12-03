@@ -32,6 +32,22 @@ const PORT = process.env.PORT || 3001;
 console.log("🔧 Loading index.js");
 
 app.use(cookieParser());
+
+app.use((req, res, next) => {
+  const shopOrigin = "https://admin.shopify.com";
+
+  res.header("Access-Control-Allow-Origin", shopOrigin);
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Headers", "Content-Type, X-Requested-With");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+
+  next();
+});
+
 app.set("trust proxy", 1);
 
 // Session (embedded app requirement)
