@@ -221,7 +221,7 @@ router.post("/create", async (req, res) => {
         query: DISCOUNT_MUTATION,
         variables: { basicCodeDiscount: gqlInput },
       },
-    });*/
+    })
 
     const userErrors =
       gqlRes?.body?.data?.discountCodeAppCreate?.userErrors || [];
@@ -232,7 +232,7 @@ router.post("/create", async (req, res) => {
         error: "Shopify validation errors",
         details: userErrors,
       });
-    }
+    };*/
 
     /* ============================================================
        Save locally
