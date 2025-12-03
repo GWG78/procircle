@@ -172,7 +172,6 @@
 
       <div class="ButtonRow">
         <button id="saveSettings" class="Button Button-primary">Save settings</button>
-        <button id="openSheet" class="Button Button-secondary">Open Google Sheet</button>
         <button id="openDocs" class="Button Button-secondary">Setup guide</button>
       </div>
     </div>
@@ -363,12 +362,7 @@
       );
     });
 
-    $("openSheet").addEventListener("click", () => {
-      Redirect.dispatch(
-        Redirect.Action.REMOTE,
-        "https://docs.google.com/spreadsheets/"
-      );
-    });
+    
 
     // 🚀 kick things off
     loadSettings();
