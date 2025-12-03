@@ -8,6 +8,12 @@ import "@shopify/shopify-api/adapters/node";
 
 const router = express.Router();
 
+// Extract ?shop from query
+router.use((req, res, next) => {
+  req.shop = req.query.shop || null;
+  next();
+});
+
 // Extract ?shop= from query and attach to req.shop
 router.use((req, res, next) => {
   const shop = req.query.shop || req.headers["x-shopify-shop-domain"];
@@ -133,43 +139,46 @@ router.post("/", async (req, res) => {
      * ✅ CLEAN + VALIDATED SETTINGS OBJECT (PATCHED)
      * -----------------------------------------------------
      */
-    const clean = {
-      discountType: discountType === "fixed" ? "fixed" : "percentage",
+    const baseType =
+  discountType === "fixed" ? "fixed" : "percentage";
 
-      discountValue: (() => {
-        const v = Number(discountValue);
-        if (isNaN(v) || v <= 0) return 1;
-        if (clean.discountType === "percentage" && v > 100) return 100;
-        return v;
-      })(),
+const clean = {
+  discountType: baseType,
 
-      expiryDays: (() => {
-        if (!expiryDays && expiryDays !== 0) return null;
-        const v = Number(expiryDays);
-        if (isNaN(v) || v < 1) return 1;
-        if (v > 365) return 365;
-        return Math.round(v);
-      })(),
+  discountValue: (() => {
+    const v = Number(discountValue);
+    if (isNaN(v) || v <= 0) return 1;
+    if (baseType === "percentage" && v > 100) return 100;
+    return v;
+  })(),
 
-      maxDiscounts: (() => {
-        if (!maxDiscounts && maxDiscounts !== 0) return null;
-        const v = Number(maxDiscounts);
-        if (isNaN(v) || v < 1) return null;
-        return Math.round(v);
-      })(),
+  expiryDays: (() => {
+    if (!expiryDays && expiryDays !== 0) return null;
+    const v = Number(expiryDays);
+    if (isNaN(v) || v < 1) return 1;
+    if (v > 365) return 365;
+    return Math.round(v);
+  })(),
 
-      oneTimeUse: !!oneTimeUse,
+  maxDiscounts: (() => {
+    if (!maxDiscounts && maxDiscounts !== 0) return null;
+    const v = Number(maxDiscounts);
+    if (isNaN(v) || v < 1) return null;
+    return Math.round(v);
+  })(),
 
-      categories: sanitizeStringArray(categories),
+  oneTimeUse: !!oneTimeUse,
 
-      allowedCountries: sanitizeStringArray(allowedCountries).filter(c =>
-        ALLOWED_COUNTRIES.includes(c)
-      ),
+  categories: sanitizeStringArray(categories),
 
-      allowedMemberTypes: sanitizeStringArray(allowedMemberTypes).filter(t =>
-        ALLOWED_MEMBER_TYPES.includes(t)
-      ),
-    };
+  allowedCountries: sanitizeStringArray(allowedCountries).filter(c =>
+    ALLOWED_COUNTRIES.includes(c)
+  ),
+
+  allowedMemberTypes: sanitizeStringArray(allowedMemberTypes).filter(m =>
+    ALLOWED_MEMBER_TYPES.includes(m)
+  ),
+};
 
     const updated = await prisma.shopSettings.upsert({
       where: { shopId: shop.id },
