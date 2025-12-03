@@ -1,0 +1,19 @@
+# Node
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Build / DB
+dist/
+dev.db
+tmp/
+.cache/
+
+# Prisma artifacts
+.prisma/
