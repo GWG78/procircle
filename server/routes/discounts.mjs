@@ -320,4 +320,20 @@ async function getCollectionGids(shop, handles) {
   return gids;
 }
 
+// ------------------------------------------------------------
+// DEBUG ROUTE — verifies that this file is deployed on Render
+// ------------------------------------------------------------
+router.get("/debug-file", (req, res) => {
+  const token = req.headers["x-api-key"];
+  if (!token || token !== process.env.GOOGLE_SHEET_SECRET) {
+    return res.status(401).json({ success: false, error: "Unauthorized API access" });
+  }
+
+  return res.json({
+    success: true,
+    message: "Discounts.mjs is LIVE on Render",
+    timestamp: new Date().toISOString()
+  });
+});
+
 export default router;
