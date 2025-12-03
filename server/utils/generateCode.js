@@ -1,18 +1,22 @@
-
-
 // utils/generateCode.js
 
-export function generateDiscountCode(name = "") {
-  // Extract initials (up to 3 to avoid huge blocks like 6+ initials)
-  const initials = String(name)
-    .trim()
-    .split(/\s+/)
-    .map(part => part[0]?.toUpperCase() || "")
+export function generateDiscountCode(name) {
+  // Initials
+  const initials = name
+    .split(" ")
+    .filter(Boolean)
+    .map(part => part[0].toUpperCase())
+    .join("");
+
+  // Random segment using Web Crypto API (works in Node 20+)
+  const bytes = new Uint8Array(3);
+  crypto.getRandomValues(bytes);
+
+  const randomPart = Array.from(bytes)
+    .map(b => b.toString(16).padStart(2, "0"))
     .join("")
-    .substring(0, 3); // optional: keep initials short
+    .substring(0, 4)
+    .toUpperCase();
 
-  // Crypto-random 6-char hex (much safer than Math.random)
-  const randomPart = crypto.randomBytes(3).toString("hex").toUpperCase();
-
-  return `PRC-${initials || "XX"}-${randomPart}`;
+  return `PC-${initials}-${randomPart}`;
 }
