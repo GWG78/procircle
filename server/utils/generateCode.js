@@ -1,15 +1,6 @@
 
-// utils/generateCode.js
-
-/**
- * Clean, branded, collision-safe discount codes.
- * Format example: PC-WILSON-4F9D7C
- */
-
-import crypto from "crypto";
 
 // utils/generateCode.js
-import crypto from "crypto";
 
 export function generateDiscountCode(name = "") {
   // Extract initials (up to 3 to avoid huge blocks like 6+ initials)
