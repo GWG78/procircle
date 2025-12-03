@@ -8,7 +8,7 @@ const prisma = new PrismaClient();
 const router = express.Router();
 
 /* ============================================================
-   1. INTERNAL API KEY VALIDATION (Google Sheets → Node)
+   1. INTERNAL API KEY VALIDATION
    ============================================================ */
 router.use((req, res, next) => {
   const token = req.headers["x-api-key"];
@@ -22,7 +22,7 @@ router.use((req, res, next) => {
 });
 
 /* ============================================================
-   2. Setup Shopify API (GraphQL)
+   2. SHOPIFY API CLIENT
    ============================================================ */
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -34,16 +34,25 @@ const shopify = shopifyApi({
 });
 
 /* ============================================================
-   3. Validate incoming payload
+   3. PAYLOAD VALIDATION
    ============================================================ */
 function validateDiscountPayload(body) {
   const errors = [];
-  const amount = Number(body.amount);
 
   if (!body.shopDomain) errors.push("shopDomain required");
   if (!body.userId) errors.push("userId required");
   if (!body.email) errors.push("email required");
-  if (isNaN(amount) || amount <= 0) errors.push("Invalid amount");
+
+  // enforce percentage-only discounts
+  const amount = Number(body.amount);
+  if (isNaN(amount) || amount <= 0 || amount > 100)
+    errors.push("amount must be 1–100 (percentage only)");
+
+  // expiryDays: 1–365 or null
+  let expiryDays =
+    body.expiryDays == null
+      ? null
+      : Math.max(1, Math.min(365, Number(body.expiryDays)));
 
   return {
     errors,
@@ -53,9 +62,9 @@ function validateDiscountPayload(body) {
       email: body.email,
       name: body.name || "",
       amount,
-      type: "percentage", // forced
-      expiryDays: body.expiryDays ?? null,
-      maxDiscounts: body.maxDiscounts ?? null,
+      expiryDays,
+      maxDiscounts:
+        body.maxDiscounts == null ? null : Number(body.maxDiscounts),
       oneTimeUse: !!body.oneTimeUse,
       categories: Array.isArray(body.categories) ? body.categories : [],
       allowedCountries: Array.isArray(body.allowedCountries)
@@ -69,86 +78,85 @@ function validateDiscountPayload(body) {
 }
 
 /* ============================================================
-   4. Get Shopify GraphQL client
+   4. GRAPHQL MUTATION FOR DISCOUNTS
    ============================================================ */
-function getGQLClient(shop, accessToken) {
-  return new shopify.clients.Graphql({
-    session: {
-      shop,
-      accessToken,
-    },
-  });
-}
-
-/* ============================================================
-   5. Convert category handles → Shopify GraphQL IDs
-   ============================================================ */
-async function fetchCollectionIds(shopDomain, accessToken, handles) {
-  if (!handles?.length) return [];
-
-  const client = new shopify.clients.Graphql({
-    session: { shop: shopDomain, accessToken },
-  });
-
-  const ids = [];
-
-  for (const handle of handles) {
-    const query = `
-      query GetCollection($handle: String!) {
-        collection(handle: $handle) {
-          id
+const DISCOUNT_MUTATION = `
+mutation CreateDiscount($input: DiscountCodeBasicCreateInput!) {
+  discountCodeBasicCreate(basicCodeDiscount: $input) {
+    codeDiscountNode {
+      id
+      codeDiscount {
+        ... on DiscountCodeBasic {
+          title
+          codes(first: 1) {
+            nodes { code }
+          }
+          endsAt
+          startsAt
         }
       }
-    `;
-
-    const result = await client.query({
-      data: { query, variables: { handle } },
-    });
-
-    const id = result?.body?.data?.collection?.id;
-    if (id) ids.push(id);
+    }
+    userErrors {
+      field
+      message
+    }
   }
-
-  return ids;
 }
+`;
 
 /* ============================================================
-   6. MAIN ENDPOINT — POST /api/discounts/create
+   5. MAIN ENDPOINT — POST /api/discounts/create
    ============================================================ */
 router.post("/create", async (req, res) => {
   try {
-    // Step 1 — Validate
-    const { errors, clean } = validateDiscountPayload(req.body);
+    /* --- Step 1: Validate input --- */
+    const { errors, clean } = validateDiscountPayload(req.body || {});
     if (errors.length) {
-      return res.status(400).json({ success: false, error: errors.join(", ") });
+      return res.status(400).json({
+        success: false,
+        error: "Validation failed",
+        details: errors,
+      });
     }
 
-    // Step 2 — Load shop + settings
+    /* --- Step 2: Load shop + settings --- */
     const shop = await prisma.shop.findUnique({
       where: { shopDomain: clean.shopDomain },
       include: { settings: true },
     });
 
     if (!shop) {
-      return res.status(404).json({ success: false, error: "Shop not found" });
+      return res
+        .status(404)
+        .json({ success: false, error: "Shop not found" });
     }
 
     const settings = shop.settings || {};
 
-    // Step 3 — Eligibility Checks
+    /* --- Step 3: Allowed country / member type filters --- */
     if (settings.allowedCountries?.length) {
-      if (!clean.allowedCountries.some(c => settings.allowedCountries.includes(c))) {
-        return res.status(403).json({ success: false, error: "Country not allowed" });
+      if (!clean.allowedCountries.some((c) =>
+        settings.allowedCountries.includes(c)
+      )) {
+        return res.status(403).json({
+          success: false,
+          error: "Country not allowed",
+        });
       }
     }
 
     if (settings.allowedMemberTypes?.length) {
-      if (!clean.allowedMemberTypes.some(t => settings.allowedMemberTypes.includes(t))) {
-        return res.status(403).json({ success: false, error: "Member type not allowed" });
+      if (!clean.allowedMemberTypes.some((t) =>
+        settings.allowedMemberTypes.includes(t)
+      )) {
+        return res.status(403).json({
+          success: false,
+          error: "Member type not allowed",
+        });
       }
     }
 
-    // Step 4 — Prevent user duplicates
+    /* --- Step 4: Enforce "1 code per user" & maxDiscounts --- */
     const existing = await prisma.discount.findFirst({
       where: {
         shopId: shop.id,
@@ -163,12 +171,11 @@ router.post("/create", async (req, res) => {
       });
     }
 
-    // Max limits
-    if (settings.maxDiscounts) {
-      const issued = await prisma.discount.count({
+    if (settings.maxDiscounts && settings.maxDiscounts > 0) {
+      const total = await prisma.discount.count({
         where: { shopId: shop.id },
       });
-      if (issued >= settings.maxDiscounts) {
+      if (total >= settings.maxDiscounts) {
         return res.status(429).json({
           success: false,
           error: "Max number of discounts reached",
@@ -176,100 +183,94 @@ router.post("/create", async (req, res) => {
       }
     }
 
-    // Step 5 — Lookup collection IDs
-    const collectionIds = await fetchCollectionIds(
-      shop.shopDomain,
-      shop.accessToken,
-      settings.categories
+    /* --- Step 5: Build expiry --- */
+    const expiryDays = clean.expiryDays ?? settings.expiryDays ?? 30;
+    const expiresAt = new Date(
+      Date.now() + expiryDays * 86400000
+    ).toISOString();
+
+    /* --- Step 6: Resolve collection handles → GIDs --- */
+    const collectionGids = await getCollectionGids(
+      shop,
+      settings.categories || []
     );
 
-    // Step 6 — Build discount code
+    /* --- Step 7: Create discount code (GraphQL) --- */
     const code = generateDiscountCode(clean.name);
-
     const startsAt = new Date().toISOString();
-    const expiryDays = clean.expiryDays ?? settings.expiryDays ?? 30;
-    const endsAt = new Date(Date.now() + expiryDays * 86400000).toISOString();
 
-    // Step 7 — GraphQL mutation
-    const gql = getGQLClient(shop.shopDomain, shop.accessToken);
-
-    const mutation = `
-      mutation CreateBasicDiscount($discount: DiscountCodeBasicInput!) {
-        discountCodeBasicCreate(basicCodeDiscount: $discount) {
-          codeDiscountNode {
-            id
-            codeDiscount {
-              ... on DiscountCodeBasic {
-                title
-                codes { code }
-              }
-            }
-          }
-          userErrors { field message }
-        }
-      }
-    `;
+    const client = new shopify.clients.Graphql({
+      session: {
+        shop: shop.shopDomain,
+        accessToken: shop.accessToken,
+      },
+    });
 
     const variables = {
-      discount: {
-        title: `ProCircle ${code}`,
-        code,
+      input: {
+        title: `ProCircle-${code}`,
+        code: code,
         startsAt,
-        endsAt,
-        customerSelection: { all: true },
-        appliesOncePerCustomer: clean.oneTimeUse,
+        endsAt: expiresAt,
         usageLimit: clean.oneTimeUse ? 1 : null,
-        combinesWith: {
-          productDiscounts: true,
-          orderDiscounts: false,
-          shippingDiscounts: false,
-        },
+        customerSelection: { all: true },
+
+        // Applies to all products OR selected collections only
+        appliesTo: collectionGids.length
+          ? {
+              collectionsToAdd: collectionGids,
+            }
+          : {
+              all: true,
+            },
+
+        // Always percentage
         customerGets: {
           value: {
             percentageValue: clean.amount,
           },
-          items: collectionIds.length
-            ? { collections: { add: collectionIds } }
-            : { all: true },
         },
       },
     };
 
-    const response = await gql.query({ data: { query: mutation, variables } });
+    const gqlRes = await client.query({
+      data: {
+        query: DISCOUNT_MUTATION,
+        variables,
+      },
+    });
 
-    const errorsGQL =
-      response?.body?.data?.discountCodeBasicCreate?.userErrors;
-
-    if (errorsGQL?.length) {
+    const gErr = gqlRes.body.data.discountCodeBasicCreate.userErrors;
+    if (gErr?.length) {
       return res.status(400).json({
         success: false,
-        error: "Shopify rejected the discount",
-        details: errorsGQL,
+        error: "Shopify error",
+        details: gErr,
       });
     }
 
-    // Extract code (Shopify returns it)
-    const savedCode =
-      response.body.data.discountCodeBasicCreate.codeDiscountNode
-        .codeDiscount.codes[0].code;
+    /* --- Extract code + data for storage --- */
+    const node =
+      gqlRes.body.data.discountCodeBasicCreate.codeDiscountNode;
 
-    // Step 8 — Save in DB
     const saved = await prisma.discount.create({
       data: {
         shopId: shop.id,
         userId: clean.userId,
         email: clean.email,
-        code: savedCode,
+        code,
         type: "percentage",
         amount: clean.amount,
-        expiresAt: new Date(endsAt),
+        expiresAt: new Date(expiresAt),
       },
     });
 
-    return res.json({ success: true, discount: saved });
-
+    return res.json({
+      success: true,
+      discount: saved,
+    });
   } catch (err) {
-    console.error("❌ Discount creation failed:", err);
+    console.error("❌ Discount creation error:", err);
     return res.status(500).json({
       success: false,
       error: "Shopify discount creation failed",
@@ -277,5 +278,39 @@ router.post("/create", async (req, res) => {
     });
   }
 });
+
+/* ============================================================
+   Helper: Convert collection handles → Shopify GIDs
+   ============================================================ */
+async function getCollectionGids(shop, handles) {
+  if (!handles.length) return [];
+
+  const client = new shopify.clients.Rest({
+    session: {
+      shop: shop.shopDomain,
+      accessToken: shop.accessToken,
+    },
+  });
+
+  const gids = [];
+
+  for (const h of handles) {
+    try {
+      const res = await client.get({
+        path: "collections",
+        query: { handle: h },
+      });
+
+      const c = res.body?.collection;
+      if (c?.id) {
+        gids.push(`gid://shopify/Collection/${c.id}`);
+      }
+    } catch (e) {
+      console.warn("Failed to resolve collection handle:", h);
+    }
+  }
+
+  return gids;
+}
 
 export default router;
