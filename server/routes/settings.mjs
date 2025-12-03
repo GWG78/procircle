@@ -68,7 +68,7 @@ function sanitizeStringArray(value) {
  */
 router.get("/", async (req, res) => {
   try {
-    const shopDomain = req.shop;
+    const shopDomain = req.query.shop;
 
     const shop = await prisma.shop.findUnique({
       where: { shopDomain },
@@ -107,7 +107,7 @@ router.get("/", async (req, res) => {
  */
 router.post("/", async (req, res) => {
   try {
-    const shopDomain = req.shop;
+    const shopDomain = req.query.shop;
 
     const shop = await prisma.shop.findUnique({
       where: { shopDomain },

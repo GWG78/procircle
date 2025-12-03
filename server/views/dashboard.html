@@ -184,153 +184,190 @@
   <script id="procircle-env" data-api-key="{{API_KEY}}"></script>
 
   <script>
-    (function() {
-      // Read API key from server header
-        const apiKey = document.currentScript.getAttribute("data-api-key")
-        || (document.head.querySelector("meta[name='x-procircle-apikey']")?.content)
-        || "";
+  (function() {
+    // Read API key from server header
+    const apiKey =
+      document.currentScript.getAttribute("data-api-key") ||
+      (document.head.querySelector("meta[name='x-procircle-apikey']")?.content) ||
+      "";
 
-      const params = new URLSearchParams(window.location.search);
-      const shop = params.get("shop");
-      const host = params.get("host");
+    const params = new URLSearchParams(window.location.search);
+    const shop = params.get("shop");
+    const host = params.get("host");
 
-      const AppBridge = window["app-bridge"];
-      const createApp = AppBridge.createApp;
+    const AppBridge = window["app-bridge"];
+    const createApp = AppBridge.createApp;
 
-      const app = createApp({
-        apiKey,
-        host,
-        forceRedirect: true,
+    const app = createApp({
+      apiKey,
+      host,
+      forceRedirect: true,
+    });
+
+    const Redirect = AppBridge.actions.Redirect.create(app);
+
+    const $ = (id) => document.getElementById(id);
+
+    const ALL_COUNTRIES = ["UK", "CH", "FR", "IT", "DE", "AT"];
+    const ALL_MEMBER_TYPES = [
+      "instructor",
+      "club_member",
+      "competitor",
+      "mountain_guide",
+    ];
+
+    /** Toast */
+    function showToast(msg, err) {
+      const el = $("toast");
+      el.textContent = msg;
+      el.style.background = err ? "#b91c1c" : "#111827";
+      el.classList.add("Toast--show");
+      setTimeout(() => el.classList.remove("Toast--show"), 2500);
+    }
+
+    /** Checkbox helpers */
+    function getChecked(name) {
+      return [...document.querySelectorAll(`input[name="${name}"]:checked`)]
+        .map((cb) => cb.value);
+    }
+    function setChecked(name, values) {
+      const set = new Set(values || []);
+      document.querySelectorAll(`input[name="${name}"]`).forEach((cb) => {
+        cb.checked = set.has(cb.value);
       });
+    }
 
-      const Redirect = AppBridge.actions.Redirect.create(app);
+    /** Multi select helpers */
+    function getMulti(el) {
+      return [...el.selectedOptions].map((o) => o.value);
+    }
+    function setMulti(el, arr) {
+      const set = new Set(arr || []);
+      [...el.options].forEach((opt) => {
+        opt.selected = set.has(opt.value);
+      });
+    }
 
-      const $ = (id) => document.getElementById(id);
+    // ✅ Default: everything checked before we even load from server
+    setChecked("allowedCountries", ALL_COUNTRIES);
+    setChecked("allowedMemberTypes", ALL_MEMBER_TYPES);
 
-      /** Toast */
-      function showToast(msg, err) {
-        const el = $("toast");
-        el.textContent = msg;
-        el.style.background = err ? "#b91c1c" : "#111827";
-        el.classList.add("Toast--show");
-        setTimeout(() => el.classList.remove("Toast--show"), 2500);
-      }
-
-      /** Checkboxes helpers */
-      function getChecked(name) {
-        return [...document.querySelectorAll(`input[name="${name}"]:checked`)]
-          .map(cb => cb.value);
-      }
-      function setChecked(name, values) {
-        const set = new Set(values || []);
-        document.querySelectorAll(`input[name="${name}"]`).forEach(cb => {
-          cb.checked = set.has(cb.value);
+    /** Load settings from server */
+    async function loadSettings() {
+      try {
+        const res = await fetch(`/api/settings?shop=${shop}`, {
+          credentials: "include",
         });
-      }
+        const data = await res.json();
+        const s = data.settings || {};
 
-      /** Multi select helpers */
-      function getMulti(el) {
-        return [...el.selectedOptions].map(o => o.value);
-      }
-      function setMulti(el, arr) {
-        const set = new Set(arr || []);
-        [...el.options].forEach(opt => opt.selected = set.has(opt.value));
-      }
+        // basic fields
+        $("discountType").value = s.discountType || "percentage";
+        $("discountValue").value = s.discountValue ?? 20;
+        $("expiryDays").value = s.expiryDays ?? "";
+        $("maxDiscounts").value = s.maxDiscounts ?? "";
+        $("oneTimeUse").checked =
+          typeof s.oneTimeUse === "boolean" ? s.oneTimeUse : true;
 
-      /** Load settings */
-      async function loadSettings() {
-        try {
-          const res = await fetch(`/api/settings?shop=${shop}`, { credentials: "include" });
-          const data = await res.json();
-          const s = data.settings;
-
-          $("discountType").value = s.discountType;
-          $("discountValue").value = s.discountValue;
-          $("expiryDays").value = s.expiryDays || "";
-          $("maxDiscounts").value = s.maxDiscounts || "";
-          $("oneTimeUse").checked = !!s.oneTimeUse;
-
+        // allowed countries – if empty/null, keep defaults
+        if (s.allowedCountries && s.allowedCountries.length) {
           setChecked("allowedCountries", s.allowedCountries);
+        }
+
+        // allowed member types – if empty/null, keep defaults
+        if (s.allowedMemberTypes && s.allowedMemberTypes.length) {
           setChecked("allowedMemberTypes", s.allowedMemberTypes);
-
-          await loadCollections(s.categories);
-        } catch (err) {
-          showToast("Failed to load settings", true);
         }
+
+        await loadCollections(s.categories || []);
+      } catch (err) {
+        console.error("Failed to load settings", err);
+        showToast("Failed to load settings", true);
       }
+    }
 
-      if (!s || !s.allowedCountries) {
-        setChecked("allowedCountries", ["UK","CH","FR","IT","DE","AT"]);
+    /** Load collections from Shopify */
+    async function loadCollections(selected) {
+      try {
+        const res = await fetch(`/api/settings/collections?shop=${shop}`, {
+          credentials: "include",
+        });
+        const data = await res.json();
+
+        const sel = $("categories");
+        sel.innerHTML = "";
+        (data.collections || []).forEach((c) => {
+          const opt = document.createElement("option");
+          opt.value = c.handle;
+          opt.textContent = c.title || c.handle;
+          sel.appendChild(opt);
+        });
+
+        setMulti(sel, selected || []);
+      } catch (err) {
+        console.error("Failed to load collections", err);
+        showToast("Failed to load collections", true);
       }
-      if (!s || !s.allowedMemberTypes) {
-        setChecked("allowedMemberTypes", [
-          "instructor",
-          "club_member",
-          "competitor",
-          "mountain_guide"
-        ]);
-      }
+    }
 
-      /** Load collections from Shopify */
-      async function loadCollections(selected) {
-        try {
-          const res = await fetch(`/api/settings/collections?shop=${shop}`, { credentials: "include" });
-          const data = await res.json();
+    // ✅ Save settings
+    $("saveSettings").addEventListener("click", async () => {
+      try {
+        const payload = {
+          discountType: $("discountType").value,
+          discountValue: Number($("discountValue").value),
+          expiryDays: $("expiryDays").value
+            ? Number($("expiryDays").value)
+            : null,
+          maxDiscounts: $("maxDiscounts").value
+            ? Number($("maxDiscounts").value)
+            : null,
+          oneTimeUse: $("oneTimeUse").checked,
+          allowedCountries: getChecked("allowedCountries"),
+          allowedMemberTypes: getChecked("allowedMemberTypes"),
+          categories: getMulti($("categories")),
+        };
 
-          const sel = $("categories");
-          sel.innerHTML = "";
-          data.collections.forEach(c => {
-            const opt = document.createElement("option");
-            opt.value = c.handle;
-            opt.textContent = c.title || c.handle;
-            sel.appendChild(opt);
-          });
+        const res = await fetch(`/api/settings?shop=${shop}`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Requested-With": "XMLHttpRequest", // 👈 important
+          },
+          body: JSON.stringify(payload),
+        });
 
-          setMulti(sel, selected);
-        } catch (err) {
-          showToast("Failed to load collections", true);
+        const data = await res.json();
+        if (!data.success) {
+          console.error("Save failed:", data);
+          return showToast("Failed to save settings", true);
         }
+
+        showToast("Settings saved!");
+      } catch (err) {
+        console.error("Error saving settings", err);
+        showToast("Error saving settings", true);
       }
+    });
 
-      $("saveSettings").addEventListener("click", async () => {
-        try {
-          const payload = {
-            discountType: $("discountType").value,
-            discountValue: Number($("discountValue").value),
-            expiryDays: $("expiryDays").value ? Number($("expiryDays").value) : null,
-            maxDiscounts: $("maxDiscounts").value ? Number($("maxDiscounts").value) : null,
-            oneTimeUse: $("oneTimeUse").checked,
-            allowedCountries: getChecked("allowedCountries"),
-            allowedMemberTypes: getChecked("allowedMemberTypes"),
-            categories: getMulti($("categories")),
-          };
+    $("openDocs").addEventListener("click", () => {
+      Redirect.dispatch(
+        Redirect.Action.REMOTE,
+        "https://procircle.io"
+      );
+    });
 
-          const res = await fetch(`/api/settings?shop=${shop}`, {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
+    $("openSheet").addEventListener("click", () => {
+      Redirect.dispatch(
+        Redirect.Action.REMOTE,
+        "https://docs.google.com/spreadsheets/"
+      );
+    });
 
-          const data = await res.json();
-          if (!data.success) return showToast("Failed to save settings", true);
-
-          showToast("Settings saved!");
-        } catch (err) {
-          showToast("Error saving settings", true);
-        }
-      });
-
-      $("openDocs").addEventListener("click", () => {
-        Redirect.dispatch(Redirect.Action.REMOTE, "https://procircle.io");
-      });
-
-      $("openSheet").addEventListener("click", () => {
-        Redirect.dispatch(Redirect.Action.REMOTE, "https://docs.google.com/spreadsheets/");
-      });
-
-      loadSettings();
-    })();
-  </script>
+    // 🚀 kick things off
+    loadSettings();
+  })();
+</script>
 </body>
 </html>
