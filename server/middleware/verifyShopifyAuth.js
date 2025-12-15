@@ -1,17 +1,18 @@
 // ~/procircle/server/middleware/verifyShopifyAuth.js
 import { shopifyApi } from "@shopify/shopify-api";
 import dotenv from "dotenv";
+import { shopify } from "../shopify.js";
 
 dotenv.config();
 
-const shopify = shopifyApi({
+/*const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
   scopes: process.env.SHOPIFY_SCOPES.split(","),
   hostName: process.env.APP_URL.replace(/https?:\/\//, ""),
   apiVersion: process.env.SHOPIFY_API_VERSION || "2025-10",
   isEmbeddedApp: true,
-});
+});*/
 
 export default async function verifyShopifyAuth(req, res, next) {
   try {
