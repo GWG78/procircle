@@ -4,6 +4,7 @@ import prisma from "../prismaClient.js";
 //import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
 import { shopifyApi } from "@shopify/shopify-api";
 import "@shopify/shopify-api/adapters/node";
+import { shopify } from "../shopify.js";
 
 
 const router = express.Router();
@@ -21,7 +22,7 @@ router.use((req, res, next) => {
   next();
 });
 
-// Shopify API (matches index.js)
+/* Shopify API (matches index.js)
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
@@ -29,7 +30,7 @@ const shopify = shopifyApi({
   hostName: process.env.APP_URL.replace(/https?:\/\//, ""),
   apiVersion: process.env.SHOPIFY_API_VERSION || "2024-07",
   isEmbeddedApp: true,
-});
+});*/
 
 // Default settings for new shops
 function getDefaultSettings(shopId) {
