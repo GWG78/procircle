@@ -265,3 +265,19 @@ router.get("/unsynced", async (req, res) => {
   const rows = await prisma.discount.findMany({
     where: { syncedToSheets: false, redeemedAt: { not: null } },
   });
+  res.json({ success: true, rows });
+});
+
+router.post("/mark-synced", async (req, res) => {
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ success: false });
+
+  await prisma.discount.update({
+    where: { code },
+    data: { syncedToSheets: true },
+  });
+
+  res.json({ success: true });
+});
+
+export default router;
