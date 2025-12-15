@@ -30,13 +30,11 @@ function validateDiscountPayload(body) {
   if (!body.userId) errors.push("userId required");
   if (!body.email) errors.push("email required");
 
-  // percentage only: 1–100 from Sheets
   const amount = Number(body.amount);
   if (isNaN(amount) || amount <= 0 || amount > 100) {
     errors.push("amount must be percentage between 1–100");
   }
 
-  // expiryDays: 1–365 or null
   const expiryDays =
     body.expiryDays == null
       ? null
@@ -45,23 +43,22 @@ function validateDiscountPayload(body) {
   return {
     errors,
     clean: {
-      shopDomain: String(body.shopDomain || "").trim(),
-      userId: String(body.userId || "").trim(),
-      email: String(body.email || "").trim(),
+      shopDomain: String(body.shopDomain).trim(),
+      userId: String(body.userId).trim(),
+      email: String(body.email).trim(),
       name: body.name || "",
       amount,
       expiryDays,
-      maxDiscounts: body.maxDiscounts == null ? null : Number(body.maxDiscounts),
+      maxDiscounts:
+        body.maxDiscounts == null ? null : Number(body.maxDiscounts),
       oneTimeUse: !!body.oneTimeUse,
       categories: Array.isArray(body.categories) ? body.categories : [],
-      allowedCountries: Array.isArray(body.allowedCountries) ? body.allowedCountries : [],
-      allowedMemberTypes: Array.isArray(body.allowedMemberTypes) ? body.allowedMemberTypes : [],
     },
   };
 }
 
 /* ============================================================
-   3. SHOPIFY GRAPHQL HELPERS (RAW FETCH — avoids deprecated client)
+   3. RAW SHOPIFY GRAPHQL (NO SDK, NO DEPRECATIONS)
    ============================================================ */
 async function shopifyGraphQL({ shopDomain, accessToken, query, variables }) {
   const endpoint = `https://${shopDomain}/admin/api/2024-10/graphql.json`;
@@ -77,37 +74,22 @@ async function shopifyGraphQL({ shopDomain, accessToken, query, variables }) {
 
   const text = await resp.text();
   let json;
+
   try {
     json = JSON.parse(text);
-  } catch (e) {
-    return {
-      ok: false,
-      error: "Malformed response from Shopify GraphQL",
-      details: text.slice(0, 1000),
-    };
+  } catch {
+    return { ok: false, error: "Invalid JSON from Shopify", details: text };
   }
 
-  if (!resp.ok) {
-    return {
-      ok: false,
-      error: "Shopify GraphQL HTTP error",
-      details: json,
-    };
-  }
-
-  if (json.errors?.length) {
-    return {
-      ok: false,
-      error: "Shopify GraphQL returned errors",
-      details: json.errors,
-    };
+  if (!resp.ok || json.errors) {
+    return { ok: false, error: "Shopify GraphQL error", details: json };
   }
 
   return { ok: true, data: json.data };
 }
 
 /* ============================================================
-   4. MUTATIONS / QUERIES
+   4. GRAPHQL DEFINITIONS
    ============================================================ */
 const DISCOUNT_BASIC_CREATE = `
 mutation CreateBasicDiscount($basicCodeDiscount: DiscountCodeBasicInput!) {
@@ -119,7 +101,9 @@ mutation CreateBasicDiscount($basicCodeDiscount: DiscountCodeBasicInput!) {
           title
           startsAt
           endsAt
-          codes(first: 1) { nodes { code } }
+          codes(first: 1) {
+            nodes { code }
+          }
         }
       }
     }
@@ -130,33 +114,30 @@ mutation CreateBasicDiscount($basicCodeDiscount: DiscountCodeBasicInput!) {
 
 const COLLECTION_BY_HANDLE = `
 query CollectionByHandle($handle: String!) {
-  collectionByHandle(handle: $handle) { id }
+  collectionByHandle(handle: $handle) {
+    id
+  }
 }
 `;
 
 /* ============================================================
-   5. RESOLVE COLLECTION HANDLES → GIDs (GraphQL)
+   5. RESOLVE COLLECTION HANDLES → GIDs
    ============================================================ */
 async function resolveCollectionGids(shopDomain, accessToken, handles) {
-  if (!handles || !handles.length) return [];
+  if (!handles?.length) return [];
 
   const gids = [];
 
   for (const h of handles) {
-    const handle = String(h || "").trim();
-    if (!handle) continue;
-
     const r = await shopifyGraphQL({
       shopDomain,
       accessToken,
       query: COLLECTION_BY_HANDLE,
-      variables: { handle },
+      variables: { handle: String(h).trim() },
     });
 
     if (r.ok && r.data?.collectionByHandle?.id) {
       gids.push(r.data.collectionByHandle.id);
-    } else {
-      console.warn("Failed to resolve collection handle:", handle, r.details || r.error);
     }
   }
 
@@ -170,14 +151,9 @@ router.post("/create", async (req, res) => {
   try {
     const { errors, clean } = validateDiscountPayload(req.body || {});
     if (errors.length) {
-      return res.status(400).json({
-        success: false,
-        error: "Validation failed",
-        details: errors,
-      });
+      return res.status(400).json({ success: false, error: errors });
     }
 
-    // Load shop + settings
     const shop = await prisma.shop.findUnique({
       where: { shopDomain: clean.shopDomain },
       include: { settings: true },
@@ -189,19 +165,7 @@ router.post("/create", async (req, res) => {
 
     const settings = shop.settings || {};
 
-    // OPTIONAL FAILSAFE GATES (disabled while WP handles filtering)
-    // if (settings.allowedCountries?.length) {
-    //   if (!clean.allowedCountries.some((c) => settings.allowedCountries.includes(c))) {
-    //     return res.status(403).json({ success: false, error: "Country not allowed" });
-    //   }
-    // }
-    // if (settings.allowedMemberTypes?.length) {
-    //   if (!clean.allowedMemberTypes.some((t) => settings.allowedMemberTypes.includes(t))) {
-    //     return res.status(403).json({ success: false, error: "Member type not allowed" });
-    //   }
-    // }
-
-    // Prevent duplicates (local DB)
+    // Prevent duplicate codes per user
     const existing = await prisma.discount.findFirst({
       where: { shopId: shop.id, userId: clean.userId },
     });
@@ -213,34 +177,29 @@ router.post("/create", async (req, res) => {
       });
     }
 
-    // MaxDiscounts enforcement
-    if (settings.maxDiscounts && settings.maxDiscounts > 0) {
-      const issued = await prisma.discount.count({ where: { shopId: shop.id } });
-      if (issued >= settings.maxDiscounts) {
+    // Max discounts
+    if (settings.maxDiscounts) {
+      const count = await prisma.discount.count({
+        where: { shopId: shop.id },
+      });
+      if (count >= settings.maxDiscounts) {
         return res.status(429).json({
           success: false,
-          error: "Max number of discounts reached",
+          error: "Max discounts reached",
         });
       }
     }
 
-    // Expiry
     const expiryDays = clean.expiryDays ?? settings.expiryDays ?? 30;
-    const endsAt = new Date(Date.now() + expiryDays * 86400000).toISOString();
     const startsAt = new Date().toISOString();
+    const endsAt = new Date(Date.now() + expiryDays * 86400000).toISOString();
 
-    // Code
     const code = generateDiscountCode(clean.name);
-
-    // Collections optional
     const collectionGids = await resolveCollectionGids(
       shop.shopDomain,
       shop.accessToken,
       settings.categories || []
     );
-
-    // IMPORTANT: Shopify expects decimal for percentage (0.30 = 30%)
-    const percentageDecimal = clean.amount / 100;
 
     const basicCodeDiscount = {
       title: `ProCircle-${code}`,
@@ -248,10 +207,10 @@ router.post("/create", async (req, res) => {
       startsAt,
       endsAt,
       usageLimit: clean.oneTimeUse ? 1 : null,
-      appliesOncePerCustomer: false, // change if you want 1 use per customer
+      appliesOncePerCustomer: false,
       customerSelection: { all: true },
       customerGets: {
-        value: { percentage: percentageDecimal },
+        value: { percentage: clean.amount / 100 },
         items: collectionGids.length
           ? { collections: { collectionsToAdd: collectionGids } }
           : { all: true },
@@ -265,32 +224,16 @@ router.post("/create", async (req, res) => {
       variables: { basicCodeDiscount },
     });
 
-    if (!gql.ok) {
-      return res.status(500).json({
-        success: false,
-        error: gql.error || "Shopify discount creation failed",
-        details: gql.details,
-      });
-    }
-
     const result = gql.data?.discountCodeBasicCreate;
-    if (!result) {
-      return res.status(500).json({
-        success: false,
-        error: "Malformed Shopify response",
-        details: gql.data,
-      });
-    }
 
-    if (result.userErrors?.length) {
+    if (!result || result.userErrors?.length) {
       return res.status(400).json({
         success: false,
         error: "Shopify error",
-        details: result.userErrors,
+        details: result?.userErrors || gql.details,
       });
     }
 
-    // Save locally
     const saved = await prisma.discount.create({
       data: {
         shopId: shop.id,
@@ -304,55 +247,21 @@ router.post("/create", async (req, res) => {
     });
 
     return res.json({ success: true, discount: saved });
+
   } catch (err) {
     console.error("❌ Discount creation error:", err);
     return res.status(500).json({
       success: false,
-      error: "Shopify discount creation failed",
-      details: err?.message || String(err),
+      error: "Discount creation failed",
+      details: err.message,
     });
   }
 });
 
 /* ============================================================
-   7. Sync Redeemed vouchers to sheets
+   7. SYNC REDEEMED CODES
    ============================================================ */
-
 router.get("/unsynced", async (req, res) => {
-  try {
-    const rows = await prisma.discount.findMany({
-      where: { syncedToSheets: false, redeemedAt: { not: null } },
-    });
-    return res.json({ success: true, rows });
-  } catch (err) {
-    console.error("Error fetching unsynced:", err);
-    return res.status(500).json({
-      success: false,
-      error: "Failed to load unsynced discounts",
-    });
-  }
-});
-
-router.post("/mark-synced", async (req, res) => {
-  try {
-    const { code } = req.body;
-    if (!code) {
-      return res.status(400).json({ success: false, error: "Missing code" });
-    }
-
-    await prisma.discount.update({
-      where: { code },
-      data: { syncedToSheets: true },
-    });
-
-    return res.json({ success: true });
-  } catch (err) {
-    console.error("Mark synced error:", err);
-    return res.status(500).json({
-      success: false,
-      error: "Failed to mark synced",
-    });
-  }
-});
-
-export default router;
+  const rows = await prisma.discount.findMany({
+    where: { syncedToSheets: false, redeemedAt: { not: null } },
+  });
