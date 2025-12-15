@@ -82,17 +82,19 @@ function validateDiscountPayload(body) {
    4. FINAL SHOPIFY GRAPHQL MUTATION
    ============================================================ */
 const DISCOUNT_CREATE_MUTATION = `
-mutation discountCreate($discount: DiscountCodeCreateInput!) {
-  discountCreate(codeDiscount: $discount) {
+mutation discountCodeBasicCreate($discount: DiscountCodeBasicInput!) {
+  discountCodeBasicCreate(basicCodeDiscount: $discount) {
     codeDiscountNode {
       id
       codeDiscount {
-        ... on DiscountCode {
+        ... on DiscountCodeBasic {
           title
           startsAt
           endsAt
           codes(first: 1) {
-            nodes { code }
+            nodes {
+              code
+            }
           }
         }
       }
@@ -205,34 +207,22 @@ router.post("/create", async (req, res) => {
 
     /* --- Build mutation input --- */
     const discountInput = {
-      title: `ProCircle-${code}`,
-      startsAt,
-      endsAt: expiresAt,
+        title: `ProCircle-${code}`,
+        codes: [{ code }],
+        startsAt,
+        endsAt: expiresAt,
+        usageLimit: clean.oneTimeUse ? 1 : null,
+        customerSelection: { all: true },
 
-      combinesWith: {
-        orderDiscounts: false,
-        productDiscounts: false,
-        shippingDiscounts: false,
-      },
-
-      customerSelection: { all: true },
-
-      code: code,
-
-      usageLimit: clean.oneTimeUse ? 1 : null,
-
-      appliesTo: collectionGids.length
-        ? { collectionsToAdd: collectionGids }
-        : { all: true },
-
-      customerGets: {
-        value: {
-          percentage: {
-            value: clean.amount,
+        customerGets: {
+          value: {
+            percentage: clean.amount,
           },
+          items: collectionGids.length
+            ? { collections: { add: collectionGids } }
+            : { all: true },
         },
-      },
-    };
+      };
 
     /* --- Shopify GraphQL Client --- */
     const gqlClient = new shopify.clients.Graphql({
@@ -249,8 +239,30 @@ router.post("/create", async (req, res) => {
       },
     });
 
+    console.log(
+        "🧪 Shopify GraphQL response:",
+        JSON.stringify(gqlRes.body, null, 2)
+      );
+
     /* --- Handle Shopify errors --- */
-    const userErrors = gqlRes.body.data.discountCreate.userErrors;
+    const result = gqlRes.body?.data?.discountCodeBasicCreate;
+
+      if (!result) {
+        return res.status(500).json({
+          success: false,
+          error: "Malformed Shopify response",
+          details: gqlRes.body,
+        });
+      }
+
+      if (result.userErrors?.length) {
+        return res.status(400).json({
+          success: false,
+          error: "Shopify error",
+          details: result.userErrors,
+        });
+      }
+      
     if (userErrors?.length) {
       return res.status(400).json({
         success: false,
