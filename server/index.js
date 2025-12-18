@@ -97,34 +97,43 @@ app.use("/api/settings", settingsRouter);
 // 🌟 Embedded Shopify Dashboard (Root route)
 // =============================================
 
-app.get("/", async (req, res) => {
-  const shop =
-    req.query.shop ||
-    req.get("X-Shopify-Shop-Domain");
+/*app.get(
+  "/",
+  shopify.ensureInstalledOnShop(),
+  (req, res) => {
+    const shop = req.query.shop || req.get("X-Shopify-Shop-Domain") || "";
+    const host = req.query.host || "";
 
-  if (!shop) {
-    return res.status(400).send("Missing shop");
+    res.setHeader("X-ProCircle-Shop", shop);
+    res.setHeader("X-ProCircle-Host", host);
+
+    const htmlPath = path.join(process.cwd(), "views/dashboard.html");
+    let html = fs.readFileSync(htmlPath, "utf8");
+
+    html = html.replace(
+      `data-api-key=""`,
+      `data-api-key="${process.env.SHOPIFY_API_KEY}"`
+    );
+
+    res.send(html);
   }
+);*/
 
-  const existing = await prisma.shop.findUnique({
-    where: { shopDomain: shop },
-  });
+app.get(
+  "/",
+  shopify.ensureInstalledOnShop(),
+  async (req, res) => {
+    const htmlPath = path.join(process.cwd(), "views/dashboard.html");
+    let html = fs.readFileSync(htmlPath, "utf8");
 
-  if (!existing || !existing.installed) {
-    console.log("🔁 Redirecting to /auth for", shop);
-    return res.redirect(`/auth?shop=${shop}`);
+    html = html.replace(
+      `data-api-key=""`,
+      `data-api-key="${process.env.SHOPIFY_API_KEY}"`
+    );
+
+    res.send(html);
   }
-
-  const htmlPath = path.join(process.cwd(), "views/dashboard.html");
-  let html = fs.readFileSync(htmlPath, "utf8");
-
-  html = html.replace(
-    `data-api-key=""`,
-    `data-api-key="${process.env.SHOPIFY_API_KEY}"`
-  );
-
-  res.send(html);
-});
+);
 
 // =============================================
 // 🚀 Start server
