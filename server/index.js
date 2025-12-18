@@ -109,21 +109,34 @@ app.use("/api/settings", settingsRouter);
 
 
 
-app.get(
-  "/",
-  shopify.ensureInstalledOnShop(),
-  async (req, res) => {
-    const htmlPath = path.join(process.cwd(), "views/dashboard.html");
-    let html = fs.readFileSync(htmlPath, "utf8");
+app.get("/", async (req, res) => {
+  const shop =
+    req.query.shop ||
+    req.get("X-Shopify-Shop-Domain");
 
-    html = html.replace(
-      `data-api-key=""`,
-      `data-api-key="${process.env.SHOPIFY_API_KEY}"`
-    );
-
-    res.send(html);
+  if (!shop) {
+    return res.status(400).send("Missing shop");
   }
-);
+
+  const existing = await prisma.shop.findUnique({
+    where: { shopDomain: shop },
+  });
+
+  if (!existing || !existing.installed) {
+    console.log("🔁 Redirecting to /auth for", shop);
+    return res.redirect(`/auth?shop=${shop}`);
+  }
+
+  const htmlPath = path.join(process.cwd(), "views/dashboard.html");
+  let html = fs.readFileSync(htmlPath, "utf8");
+
+  html = html.replace(
+    `data-api-key=""`,
+    `data-api-key="${process.env.SHOPIFY_API_KEY}"`
+  );
+
+  res.send(html);
+});
 
 // =============================================
 // 🚀 Start server
