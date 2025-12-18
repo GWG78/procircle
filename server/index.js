@@ -97,14 +97,24 @@ app.use("/api/settings", settingsRouter);
 // 🌟 Embedded Shopify Dashboard (Root route)
 // =============================================
 
-app.get("/", (req, res) => {
-  const shop = req.query.shop || req.get("X-Shopify-Shop-Domain") || "";
-  const host = req.query.host || "";
+app.get("/", async (req, res) => {
+  const shop =
+    req.query.shop ||
+    req.get("X-Shopify-Shop-Domain");
 
-  res.setHeader("X-ProCircle-Shop", shop);
-  res.setHeader("X-ProCircle-Host", host);
+  if (!shop) {
+    return res.status(400).send("Missing shop");
+  }
 
-  // Load HTML template
+  const existing = await prisma.shop.findUnique({
+    where: { shopDomain: shop },
+  });
+
+  if (!existing || !existing.installed) {
+    console.log("🔁 Redirecting to /auth for", shop);
+    return res.redirect(`/auth?shop=${shop}`);
+  }
+
   const htmlPath = path.join(process.cwd(), "views/dashboard.html");
   let html = fs.readFileSync(htmlPath, "utf8");
 
