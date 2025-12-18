@@ -16,17 +16,13 @@ router.use(cookieParser());
 // ===========================================================
 router.get("/auth", async (req, res) => {
   const shop = req.query.shop;
-  if (!shop) return res.status(400).send("Missing ?shop");
+  if (!shop) return res.status(400).json({ error: "Missing shop" });
 
-  const host = req.get("host"); // e.g. procircle-server.onrender.com
-  const redirectUrl =
-    `https://${host}/auth/toplevel?shop=${encodeURIComponent(shop)}`;
+  const host = req.get("host");
 
-  return res.send(`
-    <script>
-      window.top.location.href = "${redirectUrl}";
-    </script>
-  `);
+  res.json({
+    redirectUrl: `https://${host}/auth/toplevel?shop=${shop}`,
+  });
 });
 
 // ===========================================================

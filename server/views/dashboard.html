@@ -200,6 +200,25 @@
       forceRedirect: true,
     });
 
+    // 🔐 If shop is not installed yet, trigger OAuth via App Bridge
+if (shop && !window.__PROCIRCLE_INSTALLED__) {
+  fetch(`/api/settings?shop=${shop}`, { credentials: "include" })
+    .then(res => {
+      if (res.status === 401 || res.status === 403) {
+        Redirect.dispatch(
+          AppBridge.actions.Redirect.Action.REMOTE,
+          `/auth/toplevel?shop=${shop}`
+        );
+      }
+    })
+    .catch(() => {
+      Redirect.dispatch(
+        AppBridge.actions.Redirect.Action.REMOTE,
+        `/auth/toplevel?shop=${shop}`
+      );
+    });
+}
+
     const Redirect = AppBridge.actions.Redirect.create(app);
 
     const $ = (id) => document.getElementById(id);

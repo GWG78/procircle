@@ -1,3 +1,4 @@
+console.log("🚨 INDEX.JS VERSION 2025-01-ENSURE-REMOVED");
 // =============================================
 // 🌍 Load environment variables
 // =============================================
