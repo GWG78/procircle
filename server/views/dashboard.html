@@ -200,7 +200,7 @@
       forceRedirect: true,
     });
 
-    // 🔐 If shop is not installed yet, trigger OAuth via App Bridge
+    /* 🔐 If shop is not installed yet, trigger OAuth via App Bridge
 if (shop && !window.__PROCIRCLE_INSTALLED__) {
   fetch(`/api/settings?shop=${shop}`, { credentials: "include" })
     .then(res => {
@@ -217,21 +217,23 @@ if (shop && !window.__PROCIRCLE_INSTALLED__) {
         `/auth/toplevel?shop=${shop}`
       );
     });
-}
+}*/
 
     const Redirect = AppBridge.actions.Redirect.create(app);
 
-    if (window.__PROCIRCLE_INSTALLED__ === false) {
+   /* if (window.__PROCIRCLE_INSTALLED__ === false) {
       Redirect.dispatch(
         AppBridge.actions.Redirect.Action.REMOTE,
         `/auth/toplevel?shop=${shop}`
       );
-    }
+    }*/
 
-// 🔐 Handle backend install redirect
+/*🔐 Handle backend install redirect
   fetch(window.location.pathname + window.location.search, {
     credentials: "include",
-      })
+      })*/
+
+
     .then(async (res) => {
       if (!res.ok) {
         const data = await res.json().catch(() => null);
