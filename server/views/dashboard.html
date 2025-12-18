@@ -221,6 +221,13 @@ if (shop && !window.__PROCIRCLE_INSTALLED__) {
 
     const Redirect = AppBridge.actions.Redirect.create(app);
 
+    if (window.__PROCIRCLE_INSTALLED__ === false) {
+      Redirect.dispatch(
+        AppBridge.actions.Redirect.Action.REMOTE,
+        `/auth/toplevel?shop=${shop}`
+      );
+    }
+
 // 🔐 Handle backend install redirect
   fetch(window.location.pathname + window.location.search, {
     credentials: "include",

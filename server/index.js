@@ -108,27 +108,8 @@ app.use("/api/settings", settingsRouter);
 // 🌟 Embedded App Root
 // =============================================
 
-
-
 app.get("/", async (req, res) => {
-  const shop =
-    req.query.shop ||
-    req.get("X-Shopify-Shop-Domain");
-
-  if (!shop) {
-    return res.status(400).send("Missing shop");
-  }
-
-  const existing = await prisma.shop.findUnique({
-    where: { shopDomain: shop },
-  });
-
-  if (!existing || !existing.installed) {
-  console.log("🔁 Redirecting to /auth for", shop);
-  return res.status(401).json({
-    redirectUrl: `/auth/toplevel?shop=${shop}`,
-  });
-}
+  const shop = req.query.shop;
 
   const htmlPath = path.join(process.cwd(), "views/dashboard.html");
   let html = fs.readFileSync(htmlPath, "utf8");
@@ -138,7 +119,22 @@ app.get("/", async (req, res) => {
     `data-api-key="${process.env.SHOPIFY_API_KEY}"`
   );
 
-  res.send(html);
+  // Inject install state
+  const installed = shop
+    ? await prisma.shop.findUnique({
+        where: { shopDomain: shop },
+        select: { installed: true },
+      })
+    : null;
+
+  html = html.replace(
+    "</body>",
+    `<script>
+      window.__PROCIRCLE_INSTALLED__ = ${installed?.installed === true};
+    </script></body>`
+  );
+
+  res.status(200).send(html);
 });
 
 // =============================================
