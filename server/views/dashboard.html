@@ -5,7 +5,7 @@
   <title>ProCircle Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Shopify AppBridge v3 -->
+  <!-- Shopify App Bridge v3 -->
   <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
 
   <style>
@@ -34,68 +34,6 @@
 
     .Title { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
     .Subtitle { color: #6d7175; margin-bottom: 20px; }
-
-    .Grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 24px;
-      margin-top: 16px;
-    }
-
-    .SectionLabel {
-      font-size: 13px;
-      text-transform: uppercase;
-      color: #8c9196;
-      margin-bottom: 8px;
-    }
-
-    .Field { margin-bottom: 12px; }
-    .Field label { font-size: 14px; font-weight: 500; display: block; margin-bottom: 4px; }
-    .Field small { font-size: 11px; color: #8c9196; }
-
-    input, select {
-      width: 100%;
-      padding: 6px 8px;
-      border-radius: 4px;
-      border: 1px solid #c9cccf;
-      font-size: 14px;
-    }
-
-    select[multiple] { min-height: 120px; }
-
-    /* FIXED Checkbox alignment */
-    .CheckboxGroup label {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 4px 0;
-      font-size: 14px;
-      cursor: pointer;
-    }
-
-    .CheckboxGroup input[type="checkbox"] {
-      width: 16px;
-      height: 16px;
-      flex-shrink: 0;
-    }
-
-    .ButtonRow { margin-top: 20px; display: flex; gap: 10px; }
-    .Button { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
-    .Button-primary { background: #008060; color: #fff; }
-    .Button-secondary { background: #f6f6f7; color: #202223; }
-
-    .Toast {
-      position: fixed;
-      bottom: 16px;
-      right: 16px;
-      padding: 10px 14px;
-      border-radius: 999px;
-      background: #111827;
-      color: white;
-      font-size: 13px;
-      display: none;
-    }
-    .Toast--show { display: inline-flex; }
   </style>
 </head>
 
@@ -105,313 +43,50 @@
       <h1 class="Title">ProCircle settings</h1>
       <p class="Subtitle">Control who can claim discounts and how codes are generated.</p>
 
-      <div class="Grid">
-        <!-- LEFT COLUMN -->
-        <div>
-          <div class="SectionLabel">Discount rules</div>
-
-          <div class="Field">
-            <label for="discountType">Discount type</label>
-            <select id="discountType">
-              <option value="percentage">Percentage (%)</option>
-              <option value="fixed">Fixed amount</option>
-            </select>
-          </div>
-
-          <div class="Field">
-            <label for="discountValue">Discount value</label>
-            <input id="discountValue" type="number" min="1" />
-          </div>
-
-          <div class="Field">
-            <label for="expiryDays">Expiry window (days)</label>
-            <input id="expiryDays" type="number" min="1" />
-          </div>
-
-          <div class="Field">
-            <label for="maxDiscounts">Max number of codes</label>
-            <input id="maxDiscounts" type="number" min="1" />
-          </div>
-
-          <label class="CheckboxGroup">
-            <input id="oneTimeUse" type="checkbox" checked />
-            <span>One-time use per code</span>
-          </label>
-        </div>
-
-        <!-- RIGHT COLUMN -->
-        <div>
-          <div class="SectionLabel">Allowed Countries</div>
-
-          <div class="CheckboxGroup">
-            <label><input type="checkbox" name="allowedCountries" value="UK"> United Kingdom</label>
-            <label><input type="checkbox" name="allowedCountries" value="CH"> Switzerland</label>
-            <label><input type="checkbox" name="allowedCountries" value="FR"> France</label>
-            <label><input type="checkbox" name="allowedCountries" value="IT"> Italy</label>
-            <label><input type="checkbox" name="allowedCountries" value="DE"> Germany</label>
-            <label><input type="checkbox" name="allowedCountries" value="AT"> Austria</label>
-          </div>
-
-          <div class="SectionLabel" style="margin-top: 24px;">Allowed Member Types</div>
-
-          <div class="CheckboxGroup">
-            <label><input type="checkbox" name="allowedMemberTypes" value="instructor"> Instructor</label>
-            <label><input type="checkbox" name="allowedMemberTypes" value="club_member"> Club Member</label>
-            <label><input type="checkbox" name="allowedMemberTypes" value="competitor"> Competitor</label>
-            <label><input type="checkbox" name="allowedMemberTypes" value="mountain_guide"> Mountain Guide</label>
-          </div>
-
-          <div class="Field" style="margin-top:20px;">
-            <label for="categories">
-              Collections <span style="font-size:10px; background:#e4e5e7; padding:2px 6px; border-radius:8px;">Shopify</span>
-            </label>
-            <select id="categories" multiple></select>
-          </div>
-        </div>
-      </div>
-
-      <div class="ButtonRow">
-        <button id="saveSettings" class="Button Button-primary">Save settings</button>
-        <button id="openDocs" class="Button Button-secondary">Setup guide</button>
-      </div>
+      <p>If you can see this, the app UI is loading correctly.</p>
     </div>
   </div>
 
-  <div id="toast" class="Toast"></div>
-
-  <!-- API KEY injection from server -->
+  <!-- API KEY injected by server -->
   <script id="procircle-env" data-api-key=""></script>
 
   <script>
-  (function() {
-    // Read API key from server header
-    const apiKey = document.getElementById("procircle-env")?.dataset.apiKey || "";
+    (function () {
+      const apiKey = document.getElementById("procircle-env")?.dataset.apiKey;
 
-    const params = new URLSearchParams(window.location.search);
-    const shop = params.get("shop");
-    const host = params.get("host");
+      const params = new URLSearchParams(window.location.search);
+      const shop = params.get("shop");
+      const host = params.get("host");
 
-    const AppBridge = window["app-bridge"];
-    const createApp = AppBridge.createApp;
+      if (!apiKey || !shop || !host) {
+        console.error("Missing apiKey, shop, or host");
+        return;
+      }
 
-    const app = createApp({
-      apiKey,
-      host,
-      forceRedirect: true,
-    });
+      const AppBridge = window["app-bridge"];
+      const createApp = AppBridge.createApp;
+      const Redirect = AppBridge.actions.Redirect;
 
-    /* 🔐 If shop is not installed yet, trigger OAuth via App Bridge
-if (shop && !window.__PROCIRCLE_INSTALLED__) {
-  fetch(`/api/settings?shop=${shop}`, { credentials: "include" })
-    .then(res => {
-      if (res.status === 401 || res.status === 403) {
-        Redirect.dispatch(
-          AppBridge.actions.Redirect.Action.REMOTE,
-          `/auth/toplevel?shop=${shop}`
+      const app = createApp({
+        apiKey,
+        host,
+        forceRedirect: true,
+      });
+
+      const redirect = Redirect.create(app);
+
+      // 🔐 Trigger OAuth ONLY if backend says not installed
+      if (window.__PROCIRCLE_INSTALLED__ === false) {
+        redirect.dispatch(
+          Redirect.Action.REMOTE,
+          `/auth?shop=${shop}&host=${host}`
         );
+        return;
       }
-    })
-    .catch(() => {
-      Redirect.dispatch(
-        AppBridge.actions.Redirect.Action.REMOTE,
-        `/auth/toplevel?shop=${shop}`
-      );
-    });
-}*/
 
-    const Redirect = AppBridge.actions.Redirect.create(app);
-
-   /* if (window.__PROCIRCLE_INSTALLED__ === false) {
-      Redirect.dispatch(
-        AppBridge.actions.Redirect.Action.REMOTE,
-        `/auth/toplevel?shop=${shop}`
-      );
-    }*/
-
-/*🔐 Handle backend install redirect
-  fetch(window.location.pathname + window.location.search, {
-    credentials: "include",
-      })*/
-
-
-    .then(async (res) => {
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        if (data?.redirectUrl) {
-          Redirect.dispatch(
-            AppBridge.actions.Redirect.Action.REMOTE,
-            data.redirectUrl
-          );
-        }
-      }
-    })
-    .catch(() => {});
-
-    const $ = (id) => document.getElementById(id);
-
-    const ALL_COUNTRIES = ["UK", "CH", "FR", "IT", "DE", "AT"];
-    const ALL_MEMBER_TYPES = [
-      "instructor",
-      "club_member",
-      "competitor",
-      "mountain_guide",
-    ];
-
-    /** Toast */
-    function showToast(msg, err) {
-      const el = $("toast");
-      el.textContent = msg;
-      el.style.background = err ? "#b91c1c" : "#111827";
-      el.classList.add("Toast--show");
-      setTimeout(() => el.classList.remove("Toast--show"), 2500);
-    }
-
-    /** Checkbox helpers */
-    function getChecked(name) {
-      return [...document.querySelectorAll(`input[name="${name}"]:checked`)]
-        .map((cb) => cb.value);
-    }
-    function setChecked(name, values) {
-      const set = new Set(values || []);
-      document.querySelectorAll(`input[name="${name}"]`).forEach((cb) => {
-        cb.checked = set.has(cb.value);
-      });
-    }
-
-    /** Multi select helpers */
-    function getMulti(el) {
-      return [...el.selectedOptions].map((o) => o.value);
-    }
-    function setMulti(el, arr) {
-      const set = new Set(arr || []);
-      [...el.options].forEach((opt) => {
-        opt.selected = set.has(opt.value);
-      });
-    }
-
-    // ✅ Default: everything checked before we even load from server
-    setChecked("allowedCountries", ALL_COUNTRIES);
-    setChecked("allowedMemberTypes", ALL_MEMBER_TYPES);
-
-    /** Load settings from server */
-    async function loadSettings() {
-      try {
-        const res = await fetch(`/api/settings?shop=${shop}`, {
-          credentials: "include",
-        });
-        const data = await res.json();
-        const s = data.settings || {};
-
-        // basic fields
-        $("discountType").value = s.discountType || "percentage";
-        $("discountValue").value = s.discountValue ?? 20;
-        $("expiryDays").value = s.expiryDays ?? "";
-        $("maxDiscounts").value = s.maxDiscounts ?? "";
-        $("oneTimeUse").checked =
-          typeof s.oneTimeUse === "boolean" ? s.oneTimeUse : true;
-
-      
-
-        await loadCollections(s.categories || []);
-      } catch (err) {
-        console.error("Failed to load settings", err);
-        showToast("Failed to load settings", true);
-      }
-    }
-
-    /** Load collections from Shopify */
-    async function loadCollections(selected) {
-      try {
-        const res = await fetch(`/api/settings/collections?shop=${shop}`, {
-          credentials: "include",
-        });
-        const data = await res.json();
-
-        const sel = $("categories");
-        sel.innerHTML = "";
-        (data.collections || []).forEach((c) => {
-          const opt = document.createElement("option");
-          opt.value = c.handle;
-          opt.textContent = c.title || c.handle;
-          sel.appendChild(opt);
-        });
-
-        setMulti(sel, selected || []);
-      } catch (err) {
-        console.error("Failed to load collections", err);
-        showToast("Failed to load collections", true);
-      }
-    }
-
-    // ✅ Save settings
-    $("saveSettings").addEventListener("click", async () => {
-      try {
-        const payload = {
-          discountType: $("discountType").value,
-          discountValue: Number($("discountValue").value),
-          expiryDays: $("expiryDays").value
-            ? Number($("expiryDays").value)
-            : null,
-          maxDiscounts: $("maxDiscounts").value
-            ? Number($("maxDiscounts").value)
-            : null,
-          oneTimeUse: $("oneTimeUse").checked,
-          allowedCountries: getChecked("allowedCountries"),
-          allowedMemberTypes: getChecked("allowedMemberTypes"),
-          categories: getMulti($("categories")),
-        };
-
-        const res = await fetch(`/api/settings?shop=${shop}`, {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Requested-With": "XMLHttpRequest", // 👈 important
-          },
-          body: JSON.stringify(payload),
-        });
-
-        const data = await res.json();
-        if (!data.success) {
-          console.error("Save failed:", data);
-          return showToast("Failed to save settings", true);
-        }
-
-        // Visual "Saved" feedback on button
-          const saveBtn = $("saveSettings");
-          const originalText = saveBtn.textContent;
-
-          saveBtn.disabled = true;
-          saveBtn.textContent = "Saved!";
-          saveBtn.style.background = "#027a52"; // darker green
-
-          setTimeout(() => {
-            saveBtn.disabled = false;
-            saveBtn.textContent = originalText;
-            saveBtn.style.background = "#008060";
-          }, 1500);
-
-          // Toast too (optional)
-          showToast("Settings saved!");
-
-      } catch (err) {
-        console.error("Error saving settings", err);
-        showToast("Error saving settings", true);
-      }
-    });
-
-    $("openDocs").addEventListener("click", () => {
-      Redirect.dispatch(
-        Redirect.Action.REMOTE,
-        "https://procircle.io"
-      );
-    });
-
-    
-
-    // 🚀 kick things off
-    loadSettings();
-  })();
-</script>
+      // Otherwise, app is installed → normal UI continues
+      console.log("✅ App installed, dashboard ready");
+    })();
+  </script>
 </body>
 </html>
