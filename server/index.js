@@ -28,30 +28,29 @@ import { shopify } from "./shopify.js";
 // =============================================
 const app = express();
 
-app.use((req, res, next) => {
-  const shopOrigin = "https://admin.shopify.com";
-
-  res.header("Access-Control-Allow-Origin", shopOrigin);
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header("Access-Control-Allow-Headers", "Content-Type, X-Requested-With");
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-
-  next();
-});
+// 🚨 MUST COME FIRST (before cookies/sessions)
+app.set("trust proxy", true);
 
 const PORT = process.env.PORT || 3001;
 
 console.log("🔧 Loading index.js");
 
+// CORS for Shopify Admin iframe
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "https://admin.shopify.com");
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Headers", "Content-Type, X-Requested-With");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+
+  if (req.method === "OPTIONS") return res.sendStatus(200);
+  next();
+});
+
 app.use(cookieParser());
 
-app.set("trust proxy", 1);
-
-// Session (embedded app requirement)
+// =============================================
+// 🧠 Session (embedded app requirement)
+// =============================================
 app.use(
   session({
     name: "shopify_app_session",
@@ -63,62 +62,30 @@ app.use(
       secure: true,
       sameSite: "none",
       httpOnly: true,
-      maxAge: 600000,
     },
   })
 );
 
-// JSON parsing (but skip raw for webhooks)
+// JSON parsing (skip webhooks)
 app.use((req, res, next) => {
   if (req.originalUrl.startsWith("/api/webhooks")) return next();
   express.json()(req, res, next);
 });
 
-
-
 // =============================================
 // 🧩 ROUTES
 // =============================================
-
 console.log("🔧 Mounting auth routes…");
 app.use("/", authRoutes);
 console.log("🔧 Auth routes mounted!");
 
-// Discount code API
 app.use("/api/discounts", discountRoutes);
-
-// Webhook receiver
 app.use("/api/webhooks", webhookRoutes);
-
-// Brand settings API
 app.use("/api/settings", settingsRouter);
 
 // =============================================
-// 🌟 Embedded Shopify Dashboard (Root route)
+// 🌟 Embedded App Root
 // =============================================
-
-/*app.get(
-  "/",
-  shopify.ensureInstalledOnShop(),
-  (req, res) => {
-    const shop = req.query.shop || req.get("X-Shopify-Shop-Domain") || "";
-    const host = req.query.host || "";
-
-    res.setHeader("X-ProCircle-Shop", shop);
-    res.setHeader("X-ProCircle-Host", host);
-
-    const htmlPath = path.join(process.cwd(), "views/dashboard.html");
-    let html = fs.readFileSync(htmlPath, "utf8");
-
-    html = html.replace(
-      `data-api-key=""`,
-      `data-api-key="${process.env.SHOPIFY_API_KEY}"`
-    );
-
-    res.send(html);
-  }
-);*/
-
 app.get(
   "/",
   shopify.ensureInstalledOnShop(),
