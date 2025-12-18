@@ -23,6 +23,9 @@ import path from "path";
 
 import { shopify } from "./shopify.js";
 
+import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+
 // =============================================
 // 🚀 Server Setup
 // =============================================
@@ -48,6 +51,10 @@ app.use((req, res, next) => {
 
 app.use(cookieParser());
 
+prisma.$connect()
+  .then(() => console.log("✅ Prisma connected"))
+  .catch((e) => console.error("❌ Prisma failed to connect", e));
+
 // =============================================
 // 🧠 Session (embedded app requirement)
 // =============================================
@@ -72,6 +79,19 @@ app.use((req, res, next) => {
   express.json()(req, res, next);
 });
 
+app.get("/__db_test", async (req, res) => {
+  try {
+    const count = await prisma.shop.count();
+    res.json({ ok: true, shopCount: count });
+  } catch (err) {
+    console.error("❌ DB TEST FAILED:", err);
+    res.status(500).json({
+      ok: false,
+      error: err.message,
+    });
+  }
+});
+
 // =============================================
 // 🧩 ROUTES
 // =============================================
@@ -87,18 +107,7 @@ app.use("/api/settings", settingsRouter);
 // 🌟 Embedded App Root
 // =============================================
 
-app.get("/__db_test", async (req, res) => {
-  try {
-    const count = await prisma.shop.count();
-    res.json({ ok: true, shopCount: count });
-  } catch (err) {
-    console.error("❌ DB TEST FAILED:", err);
-    res.status(500).json({
-      ok: false,
-      error: err.message,
-    });
-  }
-});
+
 
 app.get(
   "/",
