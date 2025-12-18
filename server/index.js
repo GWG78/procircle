@@ -86,6 +86,20 @@ app.use("/api/settings", settingsRouter);
 // =============================================
 // 🌟 Embedded App Root
 // =============================================
+
+app.get("/__db_test", async (req, res) => {
+  try {
+    const count = await prisma.shop.count();
+    res.json({ ok: true, shopCount: count });
+  } catch (err) {
+    console.error("❌ DB TEST FAILED:", err);
+    res.status(500).json({
+      ok: false,
+      error: err.message,
+    });
+  }
+});
+
 app.get(
   "/",
   shopify.ensureInstalledOnShop(),
