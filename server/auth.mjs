@@ -18,10 +18,13 @@ router.get("/auth", async (req, res) => {
   const shop = req.query.shop;
   if (!shop) return res.status(400).send("Missing ?shop");
 
-  const query = new URLSearchParams({ shop }).toString();
+  const host = req.get("host"); // e.g. procircle-server.onrender.com
+  const redirectUrl =
+    `https://${host}/auth/toplevel?shop=${encodeURIComponent(shop)}`;
+
   return res.send(`
     <script>
-      window.top.location.href = "/auth/toplevel?${query}";
+      window.top.location.href = "${redirectUrl}";
     </script>
   `);
 });
