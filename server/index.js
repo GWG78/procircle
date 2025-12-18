@@ -124,9 +124,11 @@ app.get("/", async (req, res) => {
   });
 
   if (!existing || !existing.installed) {
-    console.log("🔁 Redirecting to /auth for", shop);
-    return res.redirect(`/auth?shop=${shop}`);
-  }
+  console.log("🔁 Redirecting to /auth for", shop);
+  return res.status(401).json({
+    redirectUrl: `/auth/toplevel?shop=${shop}`,
+  });
+}
 
   const htmlPath = path.join(process.cwd(), "views/dashboard.html");
   let html = fs.readFileSync(htmlPath, "utf8");

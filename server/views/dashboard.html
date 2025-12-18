@@ -221,6 +221,21 @@ if (shop && !window.__PROCIRCLE_INSTALLED__) {
 
     const Redirect = AppBridge.actions.Redirect.create(app);
 
+    // 🔐 check if backend says we must install
+    fetch(`/`, { credentials: "include" })
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          if (data?.redirectUrl) {
+            Redirect.dispatch(
+              AppBridge.actions.Redirect.Action.REMOTE,
+              data.redirectUrl
+            );
+          }
+        }
+      })
+      .catch(() => {});
+
     const $ = (id) => document.getElementById(id);
 
     const ALL_COUNTRIES = ["UK", "CH", "FR", "IT", "DE", "AT"];
