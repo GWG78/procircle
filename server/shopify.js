@@ -1,5 +1,5 @@
 import { shopifyApi } from "@shopify/shopify-api";
-import "@shopify/shopify-api/adapters/node";
+
 
 export const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,

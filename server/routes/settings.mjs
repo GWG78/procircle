@@ -3,7 +3,6 @@ import express from "express";
 import prisma from "../prismaClient.js";
 //import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
 import { shopifyApi } from "@shopify/shopify-api";
-import "@shopify/shopify-api/adapters/node";
 import { shopify } from "../shopify.js";
 
 

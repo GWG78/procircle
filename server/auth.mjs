@@ -65,7 +65,7 @@ router.get("/auth/install", async (req, res) => {
 // ===========================================================
 router.get("/auth/callback", async (req, res) => {
   console.log("🔐 OAuth callback hit");
-  console.log("➡️ Query params:", req.query);
+  console.log("🔎 Query:", req.query);
 
   try {
     const result = await shopify.auth.callback({
@@ -73,32 +73,22 @@ router.get("/auth/callback", async (req, res) => {
       rawResponse: res,
     });
 
-    console.log("✅ shopify.auth.callback() success");
+    console.log("🧾 OAuth result received");
 
     const session = result.session;
+    console.log("📦 Session:", session);
+
     if (!session) {
-      console.error("❌ No session returned from Shopify");
+      console.error("❌ No session returned");
       return res.status(500).send("No session returned");
     }
-
-    console.log("🧾 Session received:", {
-      shop: session.shop,
-      scope: session.scope,
-      isOnline: session.isOnline,
-      hasToken: !!session.accessToken,
-    });
 
     const shopDomain = session.shop;
     const accessToken = session.accessToken;
 
-    if (!accessToken) {
-      console.error("❌ Missing access token");
-      return res.status(500).send("Missing access token");
-    }
+    console.log("💾 Saving shop", shopDomain);
 
-    console.log("💾 Saving shop to database:", shopDomain);
-
-    const savedShop = await prisma.shop.upsert({
+    await prisma.shop.upsert({
       where: { shopDomain },
       update: {
         accessToken,
@@ -113,13 +103,9 @@ router.get("/auth/callback", async (req, res) => {
       },
     });
 
-    console.log("✅ Shop saved:", {
-      id: savedShop.id,
-      shopDomain: savedShop.shopDomain,
-      installed: savedShop.installed,
-    });
+    console.log("✅ Shop saved to database");
 
-    return res.send(`✅ App installed on ${shopDomain}`);
+    return res.redirect(`/?shop=${shopDomain}`);
 
   } catch (err) {
     console.error("❌ OAuth callback error:", err);
