@@ -111,7 +111,7 @@ app.use("/api/settings", settingsRouter);
 // 🌟 Embedded App Root
 // =============================================
 
-app.get("/", async (req, res) => {
+/*app.get("/", async (req, res) => {
   const shop = req.query.shop || "";
 
   const htmlPath = path.join(process.cwd(), "views/dashboard.html");
@@ -132,6 +132,35 @@ app.get("/", async (req, res) => {
   html = html.replace(
     "</body>",
     `<script>window.__PROCIRCLE_INSTALLED__ = ${installed?.installed === true};</script></body>`
+  );
+
+  res.status(200).send(html);
+});*/
+
+app.get("/", async (req, res) => {
+  const shop = req.query.shop;
+
+  if (!shop) {
+    return res.status(400).send("Missing shop");
+  }
+
+  const existing = await prisma.shop.findUnique({
+    where: { shopDomain: shop },
+  });
+
+  // 🔐 NOT INSTALLED → START OAUTH
+  if (!existing) {
+    console.log("🔁 Redirecting to /auth for", shop);
+    return res.redirect(`/auth?shop=${shop}`);
+  }
+
+  // ✅ INSTALLED → LOAD UI
+  const htmlPath = path.join(process.cwd(), "views/dashboard.html");
+  let html = fs.readFileSync(htmlPath, "utf8");
+
+  html = html.replace(
+    `data-api-key=""`,
+    `data-api-key="${process.env.SHOPIFY_API_KEY}"`
   );
 
   res.status(200).send(html);
