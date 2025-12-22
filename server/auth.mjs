@@ -33,16 +33,16 @@ router.get("/auth", async (req, res) => {
   return res.redirect(`/auth/install?shop=${shop}`);
 });*/
 
-router.get("/auth", async (req, res) => {
-  const { shop, host } = req.query;
-  if (!shop || !host) {
-    return res.status(400).send("Missing shop or host");
+router.get("/auth", (req, res) => {
+  const { shop } = req.query;
+
+  if (!shop) {
+    return res.status(400).send("Missing shop");
   }
 
-  // Must break out of iframe
-  return res.send(`
+  res.send(`
     <script>
-      window.top.location.href = "/auth/install?shop=${shop}";
+      window.top.location.href = "/auth/toplevel?shop=${shop}";
     </script>
   `);
 });
