@@ -14,13 +14,23 @@ router.use(cookieParser());
 // ===========================================================
 // 1️⃣ START OAUTH (via /auth)
 // ===========================================================
-router.get("/auth", async (req, res) => {
+/*router.get("/auth", async (req, res) => {
   const { shop, host } = req.query;
   if (!shop || !host) return res.status(400).json({ error: "Missing shop or host" });
 
   res.json({
     redirectUrl: `/auth/toplevel?shop=${shop}`,
   });
+});*/
+
+router.get("/auth", async (req, res) => {
+  const shop = req.query.shop;
+  if (!shop) {
+    return res.status(400).send("Missing ?shop");
+  }
+
+  // Direct install → go straight to OAuth
+  return res.redirect(`/auth/install?shop=${shop}`);
 });
 
 // ===========================================================
