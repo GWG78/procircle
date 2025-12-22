@@ -21,7 +21,7 @@ router.use(cookieParser());
   res.json({
     redirectUrl: `/auth/toplevel?shop=${shop}`,
   });
-});*/
+});
 
 router.get("/auth", async (req, res) => {
   const shop = req.query.shop;
@@ -31,6 +31,20 @@ router.get("/auth", async (req, res) => {
 
   // Direct install → go straight to OAuth
   return res.redirect(`/auth/install?shop=${shop}`);
+});*/
+
+router.get("/auth", async (req, res) => {
+  const { shop, host } = req.query;
+  if (!shop || !host) {
+    return res.status(400).send("Missing shop or host");
+  }
+
+  // Must break out of iframe
+  return res.send(`
+    <script>
+      window.top.location.href = "/auth/install?shop=${shop}";
+    </script>
+  `);
 });
 
 // ===========================================================
