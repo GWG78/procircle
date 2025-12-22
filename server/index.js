@@ -5,6 +5,9 @@ console.log("🚨 INDEX.JS VERSION 2025-01-ENSURE-REMOVED");
 import dotenv from "dotenv";
 dotenv.config();
 
+console.log("🔑 API KEY:", process.env.SHOPIFY_API_KEY?.slice(0, 6));
+console.log("🔑 API SECRET:", process.env.SHOPIFY_API_SECRET ? "SET" : "MISSING");
+
 // =============================================
 // 🧠 Imports
 // =============================================
