@@ -170,12 +170,13 @@ router.post("/create", async (req, res) => {
       where: { shopId: shop.id, userId: clean.userId },
     });
 
-    if (existing) {
-      return res.status(409).json({
-        success: false,
-        error: "User already has a discount",
-      });
-    }
+   if (existing) {
+  return res.json({
+    success: true,
+    discountCode: existing.code,
+    alreadyExisted: true,
+  });
+}
 
     // Max discounts
     if (settings.maxDiscounts) {
