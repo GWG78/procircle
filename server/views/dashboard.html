@@ -60,6 +60,19 @@
       if (!shop || !host) return;
 
       const AppBridge = window["app-bridge"];
+
+      if (!apiKey || !shop || !host) {
+        document.body.innerHTML = `
+          <h2>Missing required App Bridge params</h2>
+          <pre>
+      apiKey: ${apiKey}
+      shop: ${shop}
+      host: ${host}
+          </pre>
+        `;
+        throw new Error("Missing apiKey, shop, or host");
+      }
+
       const createApp = AppBridge.createApp;
       const Redirect = AppBridge.actions.Redirect;
 

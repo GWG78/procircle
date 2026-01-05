@@ -131,7 +131,9 @@ router.get("/auth/callback", async (req, res) => {
 
     console.log("✅ Shop saved to database");
 
-    return res.redirect(`/?shop=${shopDomain}`);
+    const host = req.query.host;
+
+    return res.redirect(`/?shop=${shopDomain}&host=${host}`);
 
   } catch (err) {
     console.error("❌ OAuth callback error:", err);
