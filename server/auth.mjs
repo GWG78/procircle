@@ -37,22 +37,27 @@ router.get("/auth", (req, res) => {
   const { shop } = req.query;
 
   if (!shop) {
-    return res.status(400).send("Missing shop");
+    return res.status(400).json({ error: "Missing shop" });
   }
 
-  res.send(`
-    <script>
-      window.top.location.href = "/auth/toplevel?shop=${shop}";
-    </script>
-  `);
+  res.status(401).json({
+    redirectUrl: `/auth/toplevel?shop=${shop}`,
+  });
 });
 
 // ===========================================================
 // 2️⃣ TOP-LEVEL REDIRECT (avoids iframe issues)
 // ===========================================================
-router.get("/auth/toplevel", async (req, res) => {
+/*router.get("/auth/toplevel", async (req, res) => {
   const shop = req.query.shop;
   if (!shop) return res.status(400).send("Missing ?shop");
+
+  return res.redirect(`/auth/install?shop=${shop}`);
+});*/
+
+router.get("/auth/toplevel", (req, res) => {
+  const { shop } = req.query;
+  if (!shop) return res.status(400).send("Missing shop");
 
   return res.redirect(`/auth/install?shop=${shop}`);
 });

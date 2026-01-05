@@ -53,6 +53,41 @@
   <script>
     (function () {
       const apiKey = document.getElementById("procircle-env")?.dataset.apiKey;
+      const params = new URLSearchParams(window.location.search);
+      const shop = params.get("shop");
+      const host = params.get("host");
+
+      if (!shop || !host) return;
+
+      const AppBridge = window["app-bridge"];
+      const createApp = AppBridge.createApp;
+      const Redirect = AppBridge.actions.Redirect;
+
+      const app = createApp({
+        apiKey,
+        host,
+        forceRedirect: true,
+      });
+
+      fetch(`/auth?shop=${shop}`, { credentials: "include" })
+        .then(async (res) => {
+          if (res.status === 401) {
+            const data = await res.json();
+            if (data?.redirectUrl) {
+              Redirect.create(app).dispatch(
+                Redirect.Action.REMOTE,
+                data.redirectUrl
+              );
+            }
+          }
+        })
+        .catch(() => {});
+    })();
+</script>
+
+  <script>
+    (function () {
+      const apiKey = document.getElementById("procircle-env")?.dataset.apiKey;
 
       const params = new URLSearchParams(window.location.search);
       const shop = params.get("shop");
