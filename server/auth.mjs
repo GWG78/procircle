@@ -33,15 +33,15 @@ router.get("/auth", async (req, res) => {
   return res.redirect(`/auth/install?shop=${shop}`);
 });*/
 
-router.get("/auth", (req, res) => {
-  const { shop } = req.query;
+router.get("/auth", async (req, res) => {
+  const { shop, host } = req.query;
 
-  if (!shop) {
-    return res.status(400).json({ error: "Missing shop" });
+  if (!shop || !host) {
+    return res.status(400).json({ error: "Missing shop or host" });
   }
 
-  res.status(401).json({
-    redirectUrl: `/auth/toplevel?shop=${shop}`,
+  return res.status(401).json({
+    redirectUrl: `/auth/toplevel?shop=${shop}&host=${host}`,
   });
 });
 
