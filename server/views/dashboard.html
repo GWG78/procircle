@@ -5,15 +5,13 @@
   <title>ProCircle Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Shopify App Bridge v3 -->
   <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
 
   <style>
     body {
       margin: 0;
       padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "San Francisco",
-        "Helvetica Neue", sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "San Francisco", "Helvetica Neue", sans-serif;
       background: #f6f6f7;
     }
 
@@ -33,16 +31,8 @@
       box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     }
 
-    .Title {
-      font-size: 20px;
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-
-    .Subtitle {
-      color: #6d7175;
-      margin-bottom: 20px;
-    }
+    .Title { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+    .Subtitle { color: #6d7175; margin-bottom: 20px; }
 
     .Grid {
       display: grid;
@@ -58,16 +48,8 @@
       margin-bottom: 8px;
     }
 
-    .Field {
-      margin-bottom: 12px;
-    }
-
-    .Field label {
-      font-size: 14px;
-      font-weight: 500;
-      display: block;
-      margin-bottom: 4px;
-    }
+    .Field { margin-bottom: 12px; }
+    .Field label { font-size: 14px; font-weight: 500; display: block; margin-bottom: 4px; }
 
     input, select {
       width: 100%;
@@ -75,10 +57,6 @@
       border-radius: 4px;
       border: 1px solid #c9cccf;
       font-size: 14px;
-    }
-
-    select[multiple] {
-      min-height: 120px;
     }
 
     .CheckboxGroup label {
@@ -90,34 +68,15 @@
       cursor: pointer;
     }
 
-    .CheckboxGroup input {
+    .CheckboxGroup input[type="checkbox"] {
       width: 16px;
       height: 16px;
     }
 
-    .ButtonRow {
-      margin-top: 20px;
-      display: flex;
-      gap: 10px;
-    }
-
-    .Button {
-      padding: 10px 16px;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-
-    .Button-primary {
-      background: #008060;
-      color: #fff;
-    }
-
-    .Button-secondary {
-      background: #f6f6f7;
-      color: #202223;
-    }
+    .ButtonRow { margin-top: 20px; display: flex; gap: 10px; }
+    .Button { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    .Button-primary { background: #008060; color: #fff; }
+    .Button-secondary { background: #f6f6f7; color: #202223; }
 
     .Toast {
       position: fixed;
@@ -130,10 +89,7 @@
       font-size: 13px;
       display: none;
     }
-
-    .Toast--show {
-      display: inline-flex;
-    }
+    .Toast--show { display: inline-flex; }
   </style>
 </head>
 
@@ -141,9 +97,7 @@
   <div class="App">
     <div class="Card">
       <h1 class="Title">ProCircle settings</h1>
-      <p class="Subtitle">
-        Control who can claim discounts and how codes are generated.
-      </p>
+      <p class="Subtitle">Control who can claim discounts and how codes are generated.</p>
 
       <div class="Grid">
         <!-- LEFT -->
@@ -181,191 +135,115 @@
 
         <!-- RIGHT -->
         <div>
-          <div class="SectionLabel">Allowed countries</div>
+          <div class="SectionLabel">Allowed Countries</div>
 
           <div class="CheckboxGroup">
-            <label><input type="checkbox" name="allowedCountries" value="UK"> UK</label>
-            <label><input type="checkbox" name="allowedCountries" value="CH"> Switzerland</label>
-            <label><input type="checkbox" name="allowedCountries" value="FR"> France</label>
-            <label><input type="checkbox" name="allowedCountries" value="IT"> Italy</label>
-            <label><input type="checkbox" name="allowedCountries" value="DE"> Germany</label>
-            <label><input type="checkbox" name="allowedCountries" value="AT"> Austria</label>
+            <label><input type="checkbox" name="allowedCountries" value="UK" checked> United Kingdom</label>
+            <label><input type="checkbox" name="allowedCountries" value="CH" checked> Switzerland</label>
+            <label><input type="checkbox" name="allowedCountries" value="FR" checked> France</label>
+            <label><input type="checkbox" name="allowedCountries" value="IT" checked> Italy</label>
+            <label><input type="checkbox" name="allowedCountries" value="DE" checked> Germany</label>
+            <label><input type="checkbox" name="allowedCountries" value="AT" checked> Austria</label>
           </div>
 
-          <div class="SectionLabel" style="margin-top: 24px;">
-            Allowed member types
-          </div>
+          <div class="SectionLabel" style="margin-top: 24px;">Allowed Member Types</div>
 
           <div class="CheckboxGroup">
-            <label><input type="checkbox" name="allowedMemberTypes" value="instructor"> Instructor</label>
-            <label><input type="checkbox" name="allowedMemberTypes" value="club_member"> Club member</label>
-            <label><input type="checkbox" name="allowedMemberTypes" value="competitor"> Competitor</label>
-            <label><input type="checkbox" name="allowedMemberTypes" value="mountain_guide"> Mountain guide</label>
-          </div>
-
-          <div class="Field" style="margin-top:20px;">
-            <label for="categories">Collections</label>
-            <select id="categories" multiple></select>
+            <label><input type="checkbox" name="allowedMemberTypes" value="instructor" checked> Instructor</label>
+            <label><input type="checkbox" name="allowedMemberTypes" value="club_member" checked> Club Member</label>
+            <label><input type="checkbox" name="allowedMemberTypes" value="competitor" checked> Competitor</label>
+            <label><input type="checkbox" name="allowedMemberTypes" value="mountain_guide" checked> Mountain Guide</label>
           </div>
         </div>
       </div>
 
       <div class="ButtonRow">
-        <button id="saveSettings" class="Button Button-primary">
-          Save settings
-        </button>
-        <button id="openDocs" class="Button Button-secondary">
-          Setup guide
-        </button>
+        <button id="saveSettings" class="Button Button-primary">Save settings</button>
+        <button id="openDocs" class="Button Button-secondary">Setup guide</button>
       </div>
     </div>
   </div>
 
   <div id="toast" class="Toast"></div>
 
-  <!-- API key injected by server -->
   <script id="procircle-env" data-api-key=""></script>
 
   <script>
-    (function () {
-      const apiKey =
-        document.getElementById("procircle-env")?.dataset.apiKey || "";
+  (function () {
+    const apiKey = document.getElementById("procircle-env")?.dataset.apiKey || "";
+    const params = new URLSearchParams(window.location.search);
+    const shop = params.get("shop");
+    const host = params.get("host");
 
-      const params = new URLSearchParams(window.location.search);
-      const shop = params.get("shop");
-      const host = params.get("host");
+    const AppBridge = window["app-bridge"];
+    const app = AppBridge.createApp({ apiKey, host, forceRedirect: true });
+    const Redirect = AppBridge.actions.Redirect.create(app);
 
-      const AppBridge = window["app-bridge"];
-      const createApp = AppBridge.createApp;
+    const $ = (id) => document.getElementById(id);
 
-      if (!apiKey || !shop || !host) {
-        document.body.innerHTML =
-          "<h2>Missing apiKey, shop, or host</h2>";
-        return;
-      }
+    function getChecked(name) {
+      return [...document.querySelectorAll(`input[name="${name}"]:checked`)]
+        .map(cb => cb.value);
+    }
 
-      const app = createApp({
-        apiKey,
-        host,
-        forceRedirect: true,
-      });
+    function showToast(msg, err) {
+      const el = $("toast");
+      el.textContent = msg;
+      el.style.background = err ? "#b91c1c" : "#111827";
+      el.classList.add("Toast--show");
+      setTimeout(() => el.classList.remove("Toast--show"), 2500);
+    }
 
-      const Redirect = AppBridge.actions.Redirect.create(app);
-      const $ = (id) => document.getElementById(id);
-
-      const ALL_COUNTRIES = ["UK", "CH", "FR", "IT", "DE", "AT"];
-      const ALL_MEMBER_TYPES = [
-        "instructor",
-        "club_member",
-        "competitor",
-        "mountain_guide",
-      ];
-
-      function showToast(msg, err) {
-        const el = $("toast");
-        el.textContent = msg;
-        el.style.background = err ? "#b91c1c" : "#111827";
-        el.classList.add("Toast--show");
-        setTimeout(() => el.classList.remove("Toast--show"), 2500);
-      }
-
-      function getChecked(name) {
-        return [...document.querySelectorAll(`input[name="${name}"]:checked`)]
-          .map((cb) => cb.value);
-      }
-
-      function setChecked(name, values) {
-        const set = new Set(values || []);
-        document.querySelectorAll(`input[name="${name}"]`).forEach((cb) => {
-          cb.checked = set.has(cb.value);
-        });
-      }
-
-      async function loadCollections(selected) {
-        const res = await fetch(`/api/settings/collections?shop=${shop}`, {
-          credentials: "include",
-        });
+    async function loadSettings() {
+      try {
+        const res = await fetch(`/api/settings?shop=${shop}`, { credentials: "include" });
         const data = await res.json();
+        const s = data.settings || {};
 
-        const sel = $("categories");
-        sel.innerHTML = "";
-        (data.collections || []).forEach((c) => {
-          const opt = document.createElement("option");
-          opt.value = c.handle;
-          opt.textContent = c.title || c.handle;
-          sel.appendChild(opt);
+        $("discountType").value = s.discountType || "percentage";
+        $("discountValue").value = s.discountValue ?? 20;
+        $("expiryDays").value = s.expiryDays ?? "";
+        $("maxDiscounts").value = s.maxDiscounts ?? "";
+        $("oneTimeUse").checked = s.oneTimeUse !== false;
+      } catch {
+        showToast("Failed to load settings", true);
+      }
+    }
+
+    $("saveSettings").addEventListener("click", async () => {
+      try {
+        const payload = {
+          discountType: $("discountType").value,
+          discountValue: Number($("discountValue").value),
+          expiryDays: $("expiryDays").value ? Number($("expiryDays").value) : null,
+          maxDiscounts: $("maxDiscounts").value ? Number($("maxDiscounts").value) : null,
+          oneTimeUse: $("oneTimeUse").checked,
+          allowedCountries: getChecked("allowedCountries"),
+          allowedMemberTypes: getChecked("allowedMemberTypes"),
+        };
+
+        const res = await fetch(`/api/settings?shop=${shop}`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
         });
 
-        [...sel.options].forEach((o) => {
-          o.selected = selected?.includes(o.value);
-        });
+        const data = await res.json();
+        if (!data.success) throw new Error();
+
+        showToast("Settings saved!");
+      } catch {
+        showToast("Failed to save settings", true);
       }
+    });
 
-      async function loadSettings() {
-        try {
-          const res = await fetch(`/api/settings?shop=${shop}`, {
-            credentials: "include",
-          });
-          const data = await res.json();
-          const s = data.settings || {};
+    $("openDocs").addEventListener("click", () => {
+      Redirect.dispatch(Redirect.Action.REMOTE, "https://procircle.io");
+    });
 
-          $("discountType").value = s.discountType || "percentage";
-          $("discountValue").value = s.discountValue ?? 20;
-          $("expiryDays").value = s.expiryDays ?? "";
-          $("maxDiscounts").value = s.maxDiscounts ?? "";
-          $("oneTimeUse").checked =
-            typeof s.oneTimeUse === "boolean" ? s.oneTimeUse : true;
-
-          setChecked("allowedCountries", s.allowedCountries || ALL_COUNTRIES);
-          setChecked("allowedMemberTypes", s.allowedMemberTypes || ALL_MEMBER_TYPES);
-
-          await loadCollections(s.categories || []);
-        } catch {
-          showToast("Failed to load settings", true);
-        }
-      }
-
-      $("saveSettings").addEventListener("click", async () => {
-        try {
-          const payload = {
-            discountType: $("discountType").value,
-            discountValue: Number($("discountValue").value),
-            expiryDays: $("expiryDays").value
-              ? Number($("expiryDays").value)
-              : null,
-            maxDiscounts: $("maxDiscounts").value
-              ? Number($("maxDiscounts").value)
-              : null,
-            oneTimeUse: $("oneTimeUse").checked,
-            allowedCountries: getChecked("allowedCountries"),
-            allowedMemberTypes: getChecked("allowedMemberTypes"),
-            categories: [...$("categories").selectedOptions].map(o => o.value),
-          };
-
-          const res = await fetch(`/api/settings?shop=${shop}`, {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-
-          if (!res.ok) throw new Error();
-          showToast("Settings saved");
-        } catch {
-          showToast("Save failed", true);
-        }
-      });
-
-      $("openDocs").addEventListener("click", () => {
-        Redirect.dispatch(
-          Redirect.Action.REMOTE,
-          "https://procircle.io"
-        );
-      });
-
-
-      loadSettings();
-    })();
+    loadSettings();
+  })();
   </script>
 </body>
 </html>
