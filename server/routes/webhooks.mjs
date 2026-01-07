@@ -86,7 +86,7 @@ router.post(
   async (req, res) => {
     try {
       const hmacHeader = req.get("X-Shopify-Hmac-Sha256");
-      const secret = process.env.SHOPIFY_API_SECRET;
+      const secret = process.env.SHOPIFY_WEBHOOK_SECRET;
       const rawBody = req.body;
 
       if (!Buffer.isBuffer(rawBody)) {
