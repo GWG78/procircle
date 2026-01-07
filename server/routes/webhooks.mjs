@@ -69,6 +69,24 @@ router.post(
       });
 
       console.log(`✅ Order for ${code} synced to DB.`);
+
+      await fetch(
+        "https://script.google.com/macros/s/AKfycbw2y1ZmtRX8XxnkW_P8GxAq3vw5MBSF67hwB6gWjNoXz6dgg0gJeiTPBx8M3L0uWnQc/exec",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            shop: order.shop_domain || "forwardoutdoor.co",
+            orderId: order.id.toString(),
+            discountCode: code,
+            amount: order.total_price,
+            createdAt: order.created_at,
+          }),
+        }
+      );
+
       res.status(200).send("Webhook processed successfully.");
     } catch (err) {
       console.error("❌ Error handling order webhook:", err);
