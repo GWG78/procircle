@@ -75,7 +75,7 @@ async function createCampaignDiscount(shop, campaign) {
     startsAt: campaign.startsAt ?? new Date().toISOString(),
     endsAt: campaign.expiresAt ?? null,
     customerSelection: {
-      customers: { add: [] },
+      all: true
     },
     customerGets: {
       value:
