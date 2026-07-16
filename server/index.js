@@ -22,6 +22,8 @@ import discountRoutes from "./routes/discounts.mjs";
 import webhookRoutes from "./routes/webhooks.mjs";
 import settingsRouter from "./routes/settings.mjs";
 import redemptionRoutes from "./routes/redemptions.mjs";
+import collectionsRoutes from "./routes/collections.mjs";
+import campaignRoutes from "./routes/campaigns.mjs";
 
 import path from "path";
 import { fileURLToPath } from "url";
@@ -116,6 +118,8 @@ app.use("/api/discounts", discountRoutes);
 app.use("/api/webhooks", webhookRoutes);
 app.use("/api/settings", settingsRouter);
 app.use("/api/redemptions", redemptionRoutes);
+app.use("/api/collections", collectionsRoutes);
+app.use("/api/campaigns", campaignRoutes);
 
 // =============================================
 // 🌟 Embedded App Root

@@ -8,13 +8,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@shopify/app-bridge": "^3.7.11",
     "@shopify/app-bridge-react": "^4.2.11",
     "@shopify/polaris": "^13.9.5",
     "@shopify/polaris-icons": "^9.3.1",
+    "@vitejs/plugin-react": "^6.0.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^6.0.3",
     "vite": "^8.1.5"
   }
 }
