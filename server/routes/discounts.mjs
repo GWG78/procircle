@@ -61,7 +61,7 @@ function validateDiscountPayload(body) {
    3. RAW SHOPIFY GRAPHQL (NO SDK, NO DEPRECATIONS)
    ============================================================ */
 async function shopifyGraphQL({ shopDomain, accessToken, query, variables }) {
-  const endpoint = `https://${shopDomain}/admin/api/2024-10/graphql.json`;
+  const endpoint = `https://${shopDomain}/admin/api/${process.env.SHOPIFY_API_VERSION}/graphql.json`;
 
   const resp = await fetch(endpoint, {
     method: "POST",
@@ -165,31 +165,32 @@ router.post("/create", async (req, res) => {
 
     const settings = shop.settings || {};
 
-    // Prevent duplicate codes per user
-    const existing = await prisma.discount.findFirst({
-      where: { shopId: shop.id, userId: clean.userId },
-    });
-
-   if (existing) {
-  return res.json({
-    success: true,
-    discountCode: existing.code,
-    alreadyExisted: true,
-  });
-}
-
-    // Max discounts
-    if (settings.maxDiscounts) {
-      const count = await prisma.discount.count({
-        where: { shopId: shop.id },
-      });
-      if (count >= settings.maxDiscounts) {
-        return res.status(429).json({
-          success: false,
-          error: "Max discounts reached",
-        });
-      }
-    }
+    // TODO: migrate to Campaign/Redemption model — Discount model was dropped.
+    // Duplicate-per-user and max-redemption checks now belong on Campaign/Redemption
+    // (see Campaign.maxRedemptionsPerUser / Campaign.maxRedemptions).
+    // const existing = await prisma.discount.findFirst({
+    //   where: { shopId: shop.id, userId: clean.userId },
+    // });
+    //
+    // if (existing) {
+    //   return res.json({
+    //     success: true,
+    //     discountCode: existing.code,
+    //     alreadyExisted: true,
+    //   });
+    // }
+    //
+    // if (settings.maxDiscounts) {
+    //   const count = await prisma.discount.count({
+    //     where: { shopId: shop.id },
+    //   });
+    //   if (count >= settings.maxDiscounts) {
+    //     return res.status(429).json({
+    //       success: false,
+    //       error: "Max discounts reached",
+    //     });
+    //   }
+    // }
 
     const expiryDays = clean.expiryDays ?? settings.expiryDays ?? 30;
     const startsAt = new Date().toISOString();
@@ -235,19 +236,21 @@ router.post("/create", async (req, res) => {
       });
     }
 
-    const saved = await prisma.discount.create({
-      data: {
-        shopId: shop.id,
-        userId: clean.userId,
-        email: clean.email,
-        code,
-        type: "percentage",
-        amount: clean.amount,
-        expiresAt: new Date(endsAt),
-      },
-    });
+    // TODO: migrate to Campaign/Redemption model — Discount model was dropped.
+    // A Redemption row (tied to a Campaign) should be recorded here instead.
+    // const saved = await prisma.discount.create({
+    //   data: {
+    //     shopId: shop.id,
+    //     userId: clean.userId,
+    //     email: clean.email,
+    //     code,
+    //     type: "percentage",
+    //     amount: clean.amount,
+    //     expiresAt: new Date(endsAt),
+    //   },
+    // });
 
-    return res.json({ success: true, discount: saved });
+    return res.json({ success: true, discountCode: code });
 
   } catch (err) {
     console.error("❌ Discount creation error:", err);
@@ -263,22 +266,26 @@ router.post("/create", async (req, res) => {
    7. SYNC REDEEMED CODES
    ============================================================ */
 router.get("/unsynced", async (req, res) => {
-  const rows = await prisma.discount.findMany({
-    where: { syncedToSheets: false, redeemedAt: { not: null } },
-  });
-  res.json({ success: true, rows });
+  // TODO: migrate to Campaign/Redemption model — Discount model was dropped.
+  // const rows = await prisma.discount.findMany({
+  //   where: { syncedToSheets: false, redeemedAt: { not: null } },
+  // });
+  // res.json({ success: true, rows });
+  res.status(501).json({ success: false, error: "Not implemented — pending Campaign/Redemption migration" });
 });
 
 router.post("/mark-synced", async (req, res) => {
-  const { code } = req.body;
-  if (!code) return res.status(400).json({ success: false });
-
-  await prisma.discount.update({
-    where: { code },
-    data: { syncedToSheets: true },
-  });
-
-  res.json({ success: true });
+  // TODO: migrate to Campaign/Redemption model — Discount model was dropped.
+  // const { code } = req.body;
+  // if (!code) return res.status(400).json({ success: false });
+  //
+  // await prisma.discount.update({
+  //   where: { code },
+  //   data: { syncedToSheets: true },
+  // });
+  //
+  // res.json({ success: true });
+  res.status(501).json({ success: false, error: "Not implemented — pending Campaign/Redemption migration" });
 });
 
 export default router;

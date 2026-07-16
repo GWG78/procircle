@@ -6,7 +6,6 @@ export const shopify = shopifyApi({
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
   scopes: process.env.SHOPIFY_SCOPES.split(","),
   hostName: process.env.APP_URL.replace(/https?:\/\//, ""),
-  //apiVersion: process.env.SHOPIFY_API_VERSION || "2024-07",
-  apiVersion: "2023-10",
+  apiVersion: process.env.SHOPIFY_API_VERSION,
   isEmbeddedApp: true,
 });

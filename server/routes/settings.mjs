@@ -27,7 +27,7 @@ const shopify = shopifyApi({
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
   scopes: process.env.SHOPIFY_SCOPES.split(","),
   hostName: process.env.APP_URL.replace(/https?:\/\//, ""),
-  apiVersion: process.env.SHOPIFY_API_VERSION || "2024-07",
+  apiVersion: process.env.SHOPIFY_API_VERSION,
   isEmbeddedApp: true,
 });*/
 
@@ -123,62 +123,29 @@ router.post("/", async (req, res) => {
       return res.status(404).json({ success: false, error: "Shop not found" });
     }
 
-    const {
-      discountType,
-      discountValue,
-      expiryDays,
-      maxDiscounts,
-      oneTimeUse,
-      categories,
-      allowedCountries,
-      allowedMemberTypes,
-    } = req.body;
+    const { categories } = req.body;
 
-    /**
-     * -----------------------------------------------------
-     * ✅ CLEAN + VALIDATED SETTINGS OBJECT (PATCHED)
-     * -----------------------------------------------------
-     */
-    const baseType =
-  discountType === "fixed" ? "fixed" : "percentage";
+    // TODO: migrate to Campaign/Redemption model — discountType, discountValue,
+    // expiryDays, maxDiscounts, oneTimeUse, allowedCountries, and allowedMemberTypes
+    // were removed from ShopSettings (now campaign-level concerns). The block below
+    // previously wrote those fields via prisma.shopSettings.upsert(), which will now
+    // throw a PrismaClientValidationError (unknown args) — left commented out
+    // pending the Campaign-based settings rework.
+    // const baseType = discountType === "fixed" ? "fixed" : "percentage";
+    // const clean = {
+    //   discountType: baseType,
+    //   discountValue: (() => { ... })(),
+    //   expiryDays: (() => { ... })(),
+    //   maxDiscounts: (() => { ... })(),
+    //   oneTimeUse: !!oneTimeUse,
+    //   categories: sanitizeStringArray(categories),
+    //   allowedCountries: sanitizeStringArray(allowedCountries).filter(c => ALLOWED_COUNTRIES.includes(c)),
+    //   allowedMemberTypes: sanitizeStringArray(allowedMemberTypes).filter(m => ALLOWED_MEMBER_TYPES.includes(m)),
+    // };
 
-const clean = {
-  discountType: baseType,
-
-  discountValue: (() => {
-    const v = Number(discountValue);
-    if (isNaN(v) || v <= 0) return 1;
-    if (baseType === "percentage" && v > 100) return 100;
-    return v;
-  })(),
-
-  expiryDays: (() => {
-    if (!expiryDays && expiryDays !== 0) return null;
-    const v = Number(expiryDays);
-    if (isNaN(v) || v < 1) return 1;
-    if (v > 365) return 365;
-    return Math.round(v);
-  })(),
-
-  maxDiscounts: (() => {
-    if (!maxDiscounts && maxDiscounts !== 0) return null;
-    const v = Number(maxDiscounts);
-    if (isNaN(v) || v < 1) return null;
-    return Math.round(v);
-  })(),
-
-  oneTimeUse: !!oneTimeUse,
-
-  categories: sanitizeStringArray(categories),
-
-  allowedCountries: sanitizeStringArray(allowedCountries).filter(c =>
-    ALLOWED_COUNTRIES.includes(c)
-  ),
-
-  allowedMemberTypes: sanitizeStringArray(allowedMemberTypes).filter(m =>
-    ALLOWED_MEMBER_TYPES.includes(m)
-  ),
-};
+    const clean = {
+      categories: sanitizeStringArray(categories),
+    };
 
     const updated = await prisma.shopSettings.upsert({
       where: { shopId: shop.id },

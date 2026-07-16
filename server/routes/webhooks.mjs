@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { PrismaClient } from "@prisma/client";
 import appUninstalledHandler from "../webhooks/appUninstalled.mjs";
 import { shopifyApi, DeliveryMethod } from "@shopify/shopify-api";
+import { triggerOrderSync } from "../services/makeWebhookService.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -50,42 +51,66 @@ router.post(
         return res.status(200).send("No discount code.");
       }
 
-      console.log(`📦 New order received with discount code: ${code}`);
-
-      // Update DB
-      const discount = await prisma.discount.findUnique({ where: { code } });
-      if (!discount) {
-        console.log(`⚠️ Discount ${code} not found in DB.`);
-        return res.status(200).send("Unknown discount code.");
+      if (!code.startsWith("PROCIRCLE-")) {
+        console.log(`⚪ Discount code ${code} is not a ProCircle code, skipping.`);
+        return res.status(200).send("Not a ProCircle discount code.");
       }
 
-      await prisma.discount.update({
-        where: { id: discount.id },
-        data: {
-          redeemedAt: new Date(order.created_at),
-          orderId: order.id.toString(),
-          orderAmount: parseFloat(order.total_price),
+      console.log(`📦 New order received with ProCircle discount code: ${code}`);
+
+      const campaign = await prisma.campaign.findFirst({
+        where: { discountCode: code },
+        include: { shop: true },
+      });
+
+      if (!campaign) {
+        console.log(`⚠️ No Campaign found for discount code ${code}.`);
+        return res.status(200).send("Unknown ProCircle discount code.");
+      }
+
+      const redemption = await prisma.redemption.findFirst({
+        where: {
+          campaignId: campaign.id,
+          status: "confirmed",
+          member: { email: order.email },
         },
       });
 
-      console.log(`✅ Order for ${code} synced to DB.`);
+      if (!redemption) {
+        // Member may have used the link without going through ProCircle
+        // (e.g. shared code) — log for manual review, don't error.
+        console.log(
+          `⚠️ No confirmed Redemption found for campaign ${campaign.id} and email ${order.email}. Flagging for review.`
+        );
+        return res.status(200).send("No matching redemption found.");
+      }
 
-      await fetch(
-        "https://script.google.com/macros/s/AKfycbw2y1ZmtRX8XxnkW_P8GxAq3vw5MBSF67hwB6gWjNoXz6dgg0gJeiTPBx8M3L0uWnQc/exec",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            shop: order.shop_domain || "forwardoutdoor.co",
-            orderId: order.id.toString(),
-            discountCode: code,
-            amount: order.total_price,
-            createdAt: order.created_at,
-          }),
-        }
-      );
+      const orderAmount = parseFloat(order.total_price);
+      const orderCompletedAt = new Date(order.created_at);
+
+      await prisma.redemption.update({
+        where: { id: redemption.id },
+        data: {
+          shopifyOrderId: order.id.toString(),
+          orderAmount,
+          orderCompletedAt,
+        },
+      });
+
+      console.log(`✅ Order for ${code} synced to Redemption ${redemption.id}.`);
+
+      try {
+        await triggerOrderSync({
+          memberEmail: order.email,
+          campaignName: campaign.name,
+          brandName: campaign.shop.shopDomain,
+          shopifyOrderId: order.id.toString(),
+          orderAmount,
+          orderCompletedAt,
+        });
+      } catch (syncErr) {
+        console.error("❌ Make.com order sync failed:", syncErr);
+      }
 
       res.status(200).send("Webhook processed successfully.");
     } catch (err) {

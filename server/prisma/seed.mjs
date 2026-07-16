@@ -30,14 +30,11 @@ async function main() {
   });
 
   if (!settings) {
+    // TODO: migrate to Campaign/Redemption model — discountType/discountValue/
+    // expiryDays/maxDiscounts were removed from ShopSettings (now campaign-level).
     settings = await prisma.shopSettings.create({
       data: {
         shopId: shop.id,
-        discountType: "percentage",
-        discountValue: 10,
-        expiryDays: 30,
-        maxDiscounts: 100,
-        appliesTo: "all",
       },
     });
     console.log(`✅ Created default settings for ${shop.shopDomain}`);
@@ -45,28 +42,29 @@ async function main() {
     console.log(`ℹ️ Settings already exist for ${shop.shopDomain}`);
   }
 
-  // 3️⃣ Create a demo discount if none exist
-  const existingDiscount = await prisma.discount.findFirst({
-    where: { shopId: shop.id },
-  });
-
-  if (!existingDiscount) {
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + (settings.expiryDays || 30));
-
-    const discount = await prisma.discount.create({
-      data: {
-        shopId: shop.id,
-        code: "PRC-DEMO-10",
-        amount: settings.discountValue,
-        type: settings.discountType,
-        expiresAt: expiryDate,
-      },
-    });
-    console.log(`✅ Created discount: ${discount.code}`);
-  } else {
-    console.log(`ℹ️ Discount already exists: ${existingDiscount.code}`);
-  }
+  // TODO: migrate to Campaign/Redemption model — Discount model was dropped.
+  // Seed a demo Campaign (+ optional Redemption) here instead.
+  // const existingDiscount = await prisma.discount.findFirst({
+  //   where: { shopId: shop.id },
+  // });
+  //
+  // if (!existingDiscount) {
+  //   const expiryDate = new Date();
+  //   expiryDate.setDate(expiryDate.getDate() + (settings.expiryDays || 30));
+  //
+  //   const discount = await prisma.discount.create({
+  //     data: {
+  //       shopId: shop.id,
+  //       code: "PRC-DEMO-10",
+  //       amount: settings.discountValue,
+  //       type: settings.discountType,
+  //       expiresAt: expiryDate,
+  //     },
+  //   });
+  //   console.log(`✅ Created discount: ${discount.code}`);
+  // } else {
+  //   console.log(`ℹ️ Discount already exists: ${existingDiscount.code}`);
+  // }
 
   console.log("🎉 Seeding complete!");
 }

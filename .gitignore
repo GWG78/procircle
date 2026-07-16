@@ -17,3 +17,5 @@ tmp/
 
 # Prisma artifacts
 .prisma/
+node_modules/
+web/node_modules/

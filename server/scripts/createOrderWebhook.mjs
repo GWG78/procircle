@@ -23,7 +23,7 @@ async function run() {
     "https://procircle-server.onrender.com/api/webhooks/orders-create";
 
   const res = await fetch(
-    `https://${shop}/admin/api/2024-01/webhooks.json`,
+    `https://${shop}/admin/api/${process.env.SHOPIFY_API_VERSION}/webhooks.json`,
     {
       method: "POST",
       headers: {
@@ -32,7 +32,7 @@ async function run() {
       },
       body: JSON.stringify({
         webhook: {
-          topic: "orders/create",
+          topic: "orders/paid",
           address: webhookUrl,
           format: "json",
         },

@@ -21,11 +21,15 @@ import authRoutes from "./auth.mjs";
 import discountRoutes from "./routes/discounts.mjs";
 import webhookRoutes from "./routes/webhooks.mjs";
 import settingsRouter from "./routes/settings.mjs";
+import redemptionRoutes from "./routes/redemptions.mjs";
 
-import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
 import { shopify } from "./shopify.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
@@ -83,6 +87,11 @@ app.use((req, res, next) => {
   express.json()(req, res, next);
 });
 
+// Built React app (web/ -> vite build -> server/public).
+// index: false so express.static never auto-serves index.html for "/" —
+// that must go through the OAuth/install gate below instead.
+app.use(express.static(path.join(__dirname, "public"), { index: false }));
+
 app.get("/__db_test", async (req, res) => {
   try {
     const count = await prisma.shop.count();
@@ -106,36 +115,11 @@ console.log("🔧 Auth routes mounted!");
 app.use("/api/discounts", discountRoutes);
 app.use("/api/webhooks", webhookRoutes);
 app.use("/api/settings", settingsRouter);
+app.use("/api/redemptions", redemptionRoutes);
 
 // =============================================
 // 🌟 Embedded App Root
 // =============================================
-
-/*app.get("/", async (req, res) => {
-  const shop = req.query.shop || "";
-
-  const htmlPath = path.join(process.cwd(), "views/dashboard.html");
-  let html = fs.readFileSync(htmlPath, "utf8");
-
-  html = html.replace(
-    `data-api-key=""`,
-    `data-api-key="${process.env.SHOPIFY_API_KEY}"`
-  );
-
-  const installed = shop
-    ? await prisma.shop.findUnique({
-        where: { shopDomain: shop },
-        select: { installed: true },
-      })
-    : null;
-
-  html = html.replace(
-    "</body>",
-    `<script>window.__PROCIRCLE_INSTALLED__ = ${installed?.installed === true};</script></body>`
-  );
-
-  res.status(200).send(html);
-});*/
 
 app.get("/", async (req, res) => {
   const shop = req.query.shop;
@@ -154,16 +138,18 @@ app.get("/", async (req, res) => {
     return res.redirect(`/auth?shop=${shop}`);
   }
 
-  // ✅ INSTALLED → LOAD UI
-  const htmlPath = path.join(process.cwd(), "views/dashboard.html");
-  let html = fs.readFileSync(htmlPath, "utf8");
+  // ✅ INSTALLED → LOAD REACT APP
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 
-  html = html.replace(
-    `data-api-key=""`,
-    `data-api-key="${process.env.SHOPIFY_API_KEY}"`
-  );
-
-  res.status(200).send(html);
+// Catch-all: any other non-API/non-auth GET falls through to the React app
+// (client-side routing). The OAuth/install gate above only guards the exact
+// "/" entry point — this does not re-check shop install state.
+app.get("*", (req, res, next) => {
+  if (req.path.startsWith("/api") || req.path.startsWith("/auth")) {
+    return next();
+  }
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 // =============================================

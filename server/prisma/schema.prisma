@@ -12,55 +12,117 @@ model Shop {
   id          Int       @id @default(autoincrement())
   shopDomain  String    @unique
   accessToken String
-  scope        String? 
-  installed    Boolean   @default(false) 
+  scope        String?
+  installed    Boolean   @default(false)
   uninstalledAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
-  
-  settings     ShopSettings? 
-  discounts   Discount[]
+
+  settings     ShopSettings?
+  campaigns   Campaign[]
+  memberShopifyLinks MemberShopifyLink[]
 }
 
-model Discount {
-  id             Int       @id @default(autoincrement())
-  shopId         Int
-  shop           Shop      @relation(fields: [shopId], references: [id])
-  code           String    @unique
-  amount         Float?
-  type           String?
-  expiresAt      DateTime?
-  createdAt      DateTime  @default(now())
-  syncedToShopify Boolean  @default(false)
-  redeemedAt     DateTime?
-  orderId        String?
-  orderAmount    Float?
+model Campaign {
+  id                    Int          @id @default(autoincrement())
+  shopId                Int
+  shop                  Shop         @relation(fields: [shopId], references: [id])
 
-  userId         String
-  email          String?
+  name                  String
+  slug                  String       @unique
 
-  active          Boolean   @default(true)
+  discountType          String       @default("percentage")
+  discountValue         Float
 
+  maxRedemptionsPerUser Int?         @default(1)
+  maxRedemptions        Int?
+
+  targetAudience        String       @default("all")
+
+  active                Boolean      @default(true)
+  startsAt              DateTime?
+  expiresAt             DateTime?
+
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  redemptions           Redemption[]
+  filters               CampaignFilter[]
+  shopifySegmentId      String?
+
+  discountCode          String?
+  discountLink          String?
+  shopifyDiscountId     String?
 }
 
+model Redemption {
+  id               Int       @id @default(autoincrement())
+  campaignId       Int
+  campaign         Campaign  @relation(fields: [campaignId], references: [id])
+
+  memberId         Int
+  member           Member    @relation(fields: [memberId], references: [id])
+  status           String    @default("pending")
+
+  redeemedAt       DateTime  @default(now())
+
+  shopifyOrderId   String?
+  orderAmount      Float?
+  orderCompletedAt DateTime?
+}
+
+model Member {
+  id              Int       @id @default(autoincrement())
+  email           String    @unique
+  firstName       String?
+  lastName        String?
+
+  role            String
+  country         String?
+  resort          String?
+
+  yearsExperience Int?
+  socialLinks     Json?
+  qualifications  String[]  @default([])
+
+  verified        Boolean   @default(false)
+  verifiedAt      DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  redemptions     Redemption[]
+  shopifyLinks    MemberShopifyLink[]
+}
+
+model MemberShopifyLink {
+  id                Int     @id @default(autoincrement())
+  memberId          Int
+  member            Member  @relation(fields: [memberId], references: [id])
+  shopId            Int
+  shop              Shop    @relation(fields: [shopId], references: [id])
+  shopifyCustomerId String
+
+  @@unique([memberId, shopId])
+}
+
+model CampaignFilter {
+  id         Int      @id @default(autoincrement())
+  campaignId Int
+  campaign   Campaign @relation(fields: [campaignId], references: [id])
+
+  filterType String
+  value      String
+
+  @@index([campaignId])
+}
 
 model ShopSettings {
   id                 Int       @id @default(autoincrement())
   shopId             Int       @unique
   shop               Shop      @relation(fields: [shopId], references: [id])
 
-  discountType       String    @default("percentage")
-  discountValue      Float     @default(10)
-
   categories         String[]  @default([]) // product category handles
-
-  oneTimeUse         Boolean   @default(true)
-
-  allowedCountries   String[]  @default([]) 
-  allowedMemberTypes String[]  @default([])
-
-  expiryDays         Int?      
-  maxDiscounts       Int?      
 
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
