@@ -96,6 +96,62 @@ function redemptionLimitSummary(campaign) {
 }
 
 /* ============================================================
+   Active/inactive toggle
+   ============================================================ */
+function ActiveToggle({ active, loading, onClick }) {
+  return (
+    <div
+      style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: loading ? 'not-allowed' : 'pointer' }}
+      onClick={loading ? undefined : onClick}
+      role="switch"
+      aria-checked={active}
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          if (!loading) onClick()
+        }
+      }}
+    >
+      <div
+        style={{
+          width: '44px',
+          height: '24px',
+          borderRadius: '12px',
+          backgroundColor: active ? 'var(--p-color-bg-fill-success)' : 'var(--p-color-bg-fill-critical)',
+          position: 'relative',
+          transition: 'background-color 0.2s ease',
+          opacity: loading ? 0.6 : 1,
+        }}
+      >
+        <div
+          style={{
+            width: '18px',
+            height: '18px',
+            borderRadius: '50%',
+            backgroundColor: 'white',
+            position: 'absolute',
+            top: '3px',
+            left: active ? '23px' : '3px',
+            transition: 'left 0.2s ease',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+          }}
+        />
+      </div>
+      <span
+        style={{
+          fontSize: '13px',
+          fontWeight: 500,
+          color: active ? 'var(--p-color-text-success)' : 'var(--p-color-text-critical)',
+        }}
+      >
+        {loading ? '...' : active ? 'Active' : 'Inactive'}
+      </span>
+    </div>
+  )
+}
+
+/* ============================================================
    Campaign accordion
    ============================================================ */
 function CampaignAccordion({ campaign, collections, onCopyLink, onToggled, onToastError }) {
@@ -239,14 +295,8 @@ function CampaignAccordion({ campaign, collections, onCopyLink, onToggled, onToa
                 <Text as="p" tone="subdued">
                   This campaign has expired
                 </Text>
-              ) : campaign.active ? (
-                <Button tone="critical" loading={toggling} onClick={handleToggleActive}>
-                  Deactivate
-                </Button>
               ) : (
-                <Button loading={toggling} onClick={handleToggleActive}>
-                  Reactivate
-                </Button>
+                <ActiveToggle active={campaign.active} loading={toggling} onClick={handleToggleActive} />
               )}
             </div>
           </BlockStack>
@@ -314,8 +364,6 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
 
   const greyedCountries = form.roles.length > 0 && rolesOverlapActive ? new Set(activeFilters.country) : new Set()
   const greyedRoles = form.countries.length > 0 && countriesOverlapActive ? new Set(activeFilters.role) : new Set()
-
-  const anyGreyed = greyedCountries.size > 0 || greyedRoles.size > 0
 
   const roleChoices = ROLE_OPTIONS.map((opt) => {
     const disabled = greyedRoles.has(opt.value)
@@ -493,12 +541,6 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
             <Text variant="headingSm" as="h3">
               Audience filters
             </Text>
-
-            {anyGreyed && (
-              <Banner tone="warning">
-                Some options are unavailable because they overlap with existing active campaigns.
-              </Banner>
-            )}
 
             <ChoiceList
               title="Roles"
