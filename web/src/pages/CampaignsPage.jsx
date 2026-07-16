@@ -18,6 +18,7 @@ import {
   Banner,
   Toast,
   Divider,
+  Tooltip,
 } from '@shopify/polaris'
 import { ChevronDownIcon, ChevronUpIcon, ClipboardIcon } from '@shopify/polaris-icons'
 
@@ -97,8 +98,38 @@ function redemptionLimitSummary(campaign) {
 /* ============================================================
    Campaign accordion
    ============================================================ */
-function CampaignAccordion({ campaign, collections, onCopyLink }) {
+function CampaignAccordion({ campaign, collections, onCopyLink, onToggled, onToastError }) {
   const [open, setOpen] = useState(false)
+  const [toggling, setToggling] = useState(false)
+  const [conflictMessage, setConflictMessage] = useState(null)
+
+  const handleToggleActive = useCallback(async () => {
+    setToggling(true)
+    setConflictMessage(null)
+    try {
+      const res = await fetch(`/api/campaigns/${campaign.id}/toggle-active?shop=${shop}`, {
+        method: 'PATCH',
+        credentials: 'include',
+      })
+      const data = await res.json()
+
+      if (res.status === 409) {
+        setConflictMessage(data.message)
+        return
+      }
+
+      if (!data.success) {
+        onToastError('Failed to update campaign status')
+        return
+      }
+
+      onToggled(data.campaign)
+    } catch {
+      onToastError('Failed to update campaign status')
+    } finally {
+      setToggling(false)
+    }
+  }, [campaign.id, onToggled, onToastError])
 
   const roleFilters = campaign.filters.filter((f) => f.filterType === 'role')
   const countryFilters = campaign.filters.filter((f) => f.filterType === 'country')
@@ -135,6 +166,12 @@ function CampaignAccordion({ campaign, collections, onCopyLink }) {
         <Divider />
         <div style={{ padding: '1rem' }}>
           <BlockStack gap="300">
+            {conflictMessage && (
+              <Banner tone="critical" onDismiss={() => setConflictMessage(null)}>
+                {conflictMessage}
+              </Banner>
+            )}
+
             <Text as="p">
               <Text as="span" fontWeight="semibold">
                 Discount:{' '}
@@ -196,6 +233,22 @@ function CampaignAccordion({ campaign, collections, onCopyLink }) {
                 }
               />
             )}
+
+            <div>
+              {campaign.status === 'expired' ? (
+                <Text as="p" tone="subdued">
+                  This campaign has expired
+                </Text>
+              ) : campaign.active ? (
+                <Button tone="critical" loading={toggling} onClick={handleToggleActive}>
+                  Deactivate
+                </Button>
+              ) : (
+                <Button loading={toggling} onClick={handleToggleActive}>
+                  Reactivate
+                </Button>
+              )}
+            </div>
           </BlockStack>
         </div>
       </Collapsible>
@@ -220,19 +273,79 @@ const EMPTY_FORM = {
   collectionIds: [],
 }
 
+const EMPTY_ACTIVE_FILTERS = { role: [], country: [], resort: [] }
+
 function CreateCampaignModal({ open, onClose, onCreated, collections }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [activeFilters, setActiveFilters] = useState(EMPTY_ACTIVE_FILTERS)
 
   useEffect(() => {
     if (open) {
       setForm(EMPTY_FORM)
       setError('')
+      setActiveFilters(EMPTY_ACTIVE_FILTERS)
+
+      fetch(`/api/campaigns/active-filters?shop=${shop}`, { credentials: 'include' })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success) {
+            setActiveFilters({ role: data.role || [], country: data.country || [], resort: data.resort || [] })
+          }
+        })
+        .catch(() => {
+          // Non-fatal — the form just won't grey out any options.
+        })
     }
   }, [open])
 
   const setField = useCallback((key) => (value) => setForm((f) => ({ ...f, [key]: value })), [])
+
+  // Loose conflict rule for the create form (approximate — uses the flat
+  // active-filter sets, not per-campaign overlap; see server-side
+  // checkAudienceConflict for the authoritative check run on reactivation).
+  // A country is greyed out once at least one selected role also appears
+  // somewhere in the active role set; a role is greyed out once at least
+  // one selected country also appears somewhere in the active country set.
+  // Neither dimension is greyed until the other has a selection.
+  const rolesOverlapActive = form.roles.some((r) => activeFilters.role.includes(r))
+  const countriesOverlapActive = form.countries.some((c) => activeFilters.country.includes(c))
+
+  const greyedCountries = form.roles.length > 0 && rolesOverlapActive ? new Set(activeFilters.country) : new Set()
+  const greyedRoles = form.countries.length > 0 && countriesOverlapActive ? new Set(activeFilters.role) : new Set()
+
+  const anyGreyed = greyedCountries.size > 0 || greyedRoles.size > 0
+
+  const roleChoices = ROLE_OPTIONS.map((opt) => {
+    const disabled = greyedRoles.has(opt.value)
+    return {
+      value: opt.value,
+      disabled,
+      label: disabled ? (
+        <Tooltip content="Already targeted by an active campaign">
+          <span>{opt.label}</span>
+        </Tooltip>
+      ) : (
+        opt.label
+      ),
+    }
+  })
+
+  const countryChoices = COUNTRY_OPTIONS.map((opt) => {
+    const disabled = greyedCountries.has(opt.value)
+    return {
+      value: opt.value,
+      disabled,
+      label: disabled ? (
+        <Tooltip content="Already targeted by an active campaign">
+          <span>{opt.label}</span>
+        </Tooltip>
+      ) : (
+        opt.label
+      ),
+    }
+  })
 
   const handleSubmit = useCallback(async () => {
     setError('')
@@ -381,10 +494,16 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
               Audience filters
             </Text>
 
+            {anyGreyed && (
+              <Banner tone="warning">
+                Some options are unavailable because they overlap with existing active campaigns.
+              </Banner>
+            )}
+
             <ChoiceList
               title="Roles"
               allowMultiple
-              choices={ROLE_OPTIONS}
+              choices={roleChoices}
               selected={form.roles}
               onChange={setField('roles')}
             />
@@ -396,7 +515,7 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
             <ChoiceList
               title="Countries"
               allowMultiple
-              choices={COUNTRY_OPTIONS}
+              choices={countryChoices}
               selected={form.countries}
               onChange={setField('countries')}
             />
@@ -494,10 +613,26 @@ export default function CampaignsPage() {
     setToast({ message: 'Discount link copied', error: false })
   }, [])
 
+  const handleToggled = useCallback((updatedCampaign) => {
+    setCampaigns((prev) => prev.map((c) => (c.id === updatedCampaign.id ? updatedCampaign : c)))
+  }, [])
+
+  const handleToastError = useCallback((message) => {
+    setToast({ message, error: true })
+  }, [])
+
   const hasCampaigns = campaigns.length > 0
+  const activeCount = campaigns.filter((c) => c.status === 'active').length
 
   return (
-    <Page title="Campaigns" primaryAction={{ content: 'Create campaign', onAction: () => setModalOpen(true) }}>
+    <Page
+      title="Campaigns"
+      primaryAction={
+        hasCampaigns
+          ? undefined
+          : { content: 'Create your first campaign', onAction: () => setModalOpen(true) }
+      }
+    >
       {!loading && !hasCampaigns && (
         <Card>
           <EmptyState
@@ -511,16 +646,21 @@ export default function CampaignsPage() {
 
       {hasCampaigns && (
         <BlockStack gap="300">
+          <Text as="p" tone="subdued">
+            {activeCount} active campaign{activeCount === 1 ? '' : 's'}
+          </Text>
           {campaigns.map((campaign) => (
             <CampaignAccordion
               key={campaign.id}
               campaign={campaign}
               collections={collections}
               onCopyLink={handleCopyLink}
+              onToggled={handleToggled}
+              onToastError={handleToastError}
             />
           ))}
           <div>
-            <Button onClick={() => setModalOpen(true)}>Create campaign</Button>
+            <Button onClick={() => setModalOpen(true)}>Add campaign</Button>
           </div>
         </BlockStack>
       )}

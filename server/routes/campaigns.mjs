@@ -45,6 +45,87 @@ function deriveStatus(campaign) {
 }
 
 /**
+ * Shapes a Campaign row (with `filters` and `redemptions` included) into
+ * the response shape the UI expects: derived `status`, total redemption
+ * `_count`, and a separate `confirmedRedemptions` count. Shared by every
+ * route that returns campaign objects so the shape stays consistent.
+ */
+function shapeCampaign(campaign) {
+  const { redemptions = [], ...rest } = campaign;
+  return {
+    ...rest,
+    status: deriveStatus(rest),
+    _count: { redemptions: redemptions.length },
+    confirmedRedemptions: redemptions.filter((r) => r.status === "confirmed").length,
+  };
+}
+
+function groupFiltersByType(filters) {
+  const map = {};
+  for (const f of filters) {
+    if (!map[f.filterType]) map[f.filterType] = new Set();
+    map[f.filterType].add(f.value);
+  }
+  return map;
+}
+
+/**
+ * Checks whether activating `campaignId` would create an audience overlap
+ * with any other currently active (non-expired) campaign on `shopId`.
+ *
+ * Loose rule: two campaigns conflict if, for every filterType that BOTH
+ * campaigns filter on, their value sets intersect. A filterType only one
+ * side filters on is ignored (that side accepts all values for it), and if
+ * the two campaigns share no filterType at all there's no basis to compare
+ * them, so no conflict is reported — this means a campaign with zero
+ * filters ("all members") never conflicts with anything under this rule,
+ * since it has no filterType to share with the other campaign.
+ *
+ * Returns { id, name } of the first conflicting campaign found, or null.
+ */
+async function checkAudienceConflict(campaignId, shopId) {
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    include: { filters: true },
+  });
+  if (!campaign) return null;
+
+  const now = new Date();
+  const otherActiveCampaigns = await prisma.campaign.findMany({
+    where: {
+      shopId,
+      id: { not: campaignId },
+      active: true,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+    },
+    include: { filters: true },
+    orderBy: { id: "asc" },
+  });
+
+  const targetGroups = groupFiltersByType(campaign.filters);
+
+  for (const other of otherActiveCampaigns) {
+    const otherGroups = groupFiltersByType(other.filters);
+    const sharedTypes = Object.keys(targetGroups).filter((type) => type in otherGroups);
+
+    if (sharedTypes.length === 0) continue;
+
+    const allTypesOverlap = sharedTypes.every((type) => {
+      for (const value of targetGroups[type]) {
+        if (otherGroups[type].has(value)) return true;
+      }
+      return false;
+    });
+
+    if (allTypesOverlap) {
+      return { id: other.id, name: other.name };
+    }
+  }
+
+  return null;
+}
+
+/**
  * ===========================================================
  * POST /api/campaigns/create?shop=...
  * ===========================================================
@@ -204,17 +285,122 @@ router.get("/", async (req, res) => {
       },
     });
 
-    const shaped = campaigns.map(({ redemptions, ...campaign }) => ({
-      ...campaign,
-      status: deriveStatus(campaign),
-      _count: { redemptions: redemptions.length },
-      confirmedRedemptions: redemptions.filter((r) => r.status === "confirmed").length,
-    }));
-
-    res.json({ success: true, campaigns: shaped });
+    res.json({ success: true, campaigns: campaigns.map(shapeCampaign) });
   } catch (err) {
     console.error("❌ Error loading campaigns:", err);
     res.status(500).json({ success: false, error: "Failed to load campaigns" });
+  }
+});
+
+/**
+ * ===========================================================
+ * GET /api/campaigns/active-filters?shop=...&excludeCampaignId=...
+ *
+ * Filter values currently in use by active, non-expired campaigns,
+ * grouped by filterType. Used by the create form to grey out audience
+ * options that would loosely conflict — see Step 3 comment on the UI
+ * side for why this only returns the flat sets rather than doing full
+ * pairwise conflict checking (that's checkAudienceConflict's job).
+ * ===========================================================
+ */
+router.get("/active-filters", async (req, res) => {
+  try {
+    const shopDomain = req.query.shop;
+    if (!shopDomain) {
+      return res.status(400).json({ success: false, error: "shop is required" });
+    }
+
+    const shop = await prisma.shop.findUnique({ where: { shopDomain } });
+    if (!shop) {
+      return res.status(404).json({ success: false, error: "Shop not found" });
+    }
+
+    const excludeCampaignId = req.query.excludeCampaignId ? Number(req.query.excludeCampaignId) : null;
+
+    const now = new Date();
+    const activeCampaigns = await prisma.campaign.findMany({
+      where: {
+        shopId: shop.id,
+        active: true,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        ...(excludeCampaignId ? { id: { not: excludeCampaignId } } : {}),
+      },
+      include: { filters: true },
+    });
+
+    const grouped = groupFiltersByType(activeCampaigns.flatMap((c) => c.filters));
+
+    res.json({
+      success: true,
+      role: [...(grouped.role || [])],
+      country: [...(grouped.country || [])],
+      resort: [...(grouped.resort || [])],
+    });
+  } catch (err) {
+    console.error("❌ Error loading active filters:", err);
+    res.status(500).json({ success: false, error: "Failed to load active filters" });
+  }
+});
+
+/**
+ * ===========================================================
+ * PATCH /api/campaigns/:id/toggle-active?shop=...
+ *
+ * Flips the campaign's active state. Reactivating (false -> true) runs
+ * the audience conflict check first and refuses with 409 if it finds one;
+ * deactivating (true -> false) never conflicts, so it's unconditional.
+ * ===========================================================
+ */
+router.patch("/:id/toggle-active", async (req, res) => {
+  try {
+    const shopDomain = req.query.shop;
+    if (!shopDomain) {
+      return res.status(400).json({ success: false, error: "shop is required" });
+    }
+
+    const shop = await prisma.shop.findUnique({ where: { shopDomain } });
+    if (!shop) {
+      return res.status(404).json({ success: false, error: "Shop not found" });
+    }
+
+    const campaignId = Number(req.params.id);
+    if (isNaN(campaignId)) {
+      return res.status(400).json({ success: false, error: "Invalid campaign id" });
+    }
+
+    const campaign = await prisma.campaign.findFirst({
+      where: { id: campaignId, shopId: shop.id },
+    });
+    if (!campaign) {
+      return res.status(404).json({ success: false, error: "Campaign not found" });
+    }
+
+    const activating = !campaign.active;
+
+    if (activating) {
+      const conflict = await checkAudienceConflict(campaignId, shop.id);
+      if (conflict) {
+        return res.status(409).json({
+          error: "conflict",
+          message: `This campaign conflicts with '${conflict.name}'. Deactivate that campaign first or adjust the audience filters before reactivating.`,
+          conflictingCampaign: conflict,
+        });
+      }
+    }
+
+    const updated = await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { active: activating },
+      include: {
+        filters: true,
+        redemptions: { select: { status: true } },
+      },
+    });
+
+    res.json({ success: true, campaign: shapeCampaign(updated) });
+  } catch (err) {
+    console.error("❌ Error toggling campaign active state:", err);
+    res.status(500).json({ success: false, error: "Failed to update campaign" });
   }
 });
 
