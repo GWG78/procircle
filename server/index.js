@@ -18,7 +18,6 @@ import session from "express-session";
 import "@shopify/shopify-api/adapters/node";
 
 import authRoutes from "./auth.mjs";
-import discountRoutes from "./routes/discounts.mjs";
 import webhookRoutes from "./routes/webhooks.mjs";
 import settingsRouter from "./routes/settings.mjs";
 import redemptionRoutes from "./routes/redemptions.mjs";
@@ -114,7 +113,7 @@ console.log("🔧 Mounting auth routes…");
 app.use("/", authRoutes);
 console.log("🔧 Auth routes mounted!");
 
-app.use("/api/discounts", discountRoutes);
+
 app.use("/api/webhooks", webhookRoutes);
 app.use("/api/settings", settingsRouter);
 app.use("/api/redemptions", redemptionRoutes);
