@@ -86,23 +86,17 @@ async function customerByEmail(shop, email) {
 }
 
 /**
- * Returns the Shopify customer GID for this member on this shop, creating
- * both the Shopify customer and the MemberShopifyLink row if needed.
+ * Creates a Shopify customer for {email, firstName, lastName}, falling back
+ * to a by-email lookup if Shopify reports the email as already taken.
+ * Shared by getOrCreateCustomer and getOrCreateSentinelCustomer — neither
+ * of which should duplicate this create-with-duplicate-fallback logic.
  */
-async function getOrCreateCustomer(shop, member) {
-  const existingLink = await prisma.memberShopifyLink.findUnique({
-    where: { memberId_shopId: { memberId: member.id, shopId: shop.id } },
-  });
-
-  if (existingLink) {
-    return existingLink.shopifyCustomerId;
-  }
-
+async function createOrFindShopifyCustomer(shop, { email, firstName, lastName }) {
   const createResult = await shopifyGraphQL(shop, CUSTOMER_CREATE, {
     input: {
-      email: member.email,
-      firstName: member.firstName || undefined,
-      lastName: member.lastName || undefined,
+      email,
+      firstName: firstName || undefined,
+      lastName: lastName || undefined,
       tags: ["procircle"],
     },
   });
@@ -121,7 +115,7 @@ async function getOrCreateCustomer(shop, member) {
 
   if (!shopifyCustomerId && isDuplicateEmail) {
     // Customer already exists on Shopify but we have no link yet — look it up.
-    shopifyCustomerId = await customerByEmail(shop, member.email);
+    shopifyCustomerId = await customerByEmail(shop, email);
   }
 
   if (!shopifyCustomerId) {
@@ -129,6 +123,24 @@ async function getOrCreateCustomer(shop, member) {
       `Shopify customerCreate returned no customer: ${JSON.stringify(userErrors)}`
     );
   }
+
+  return shopifyCustomerId;
+}
+
+/**
+ * Returns the Shopify customer GID for this member on this shop, creating
+ * both the Shopify customer and the MemberShopifyLink row if needed.
+ */
+async function getOrCreateCustomer(shop, member) {
+  const existingLink = await prisma.memberShopifyLink.findUnique({
+    where: { memberId_shopId: { memberId: member.id, shopId: shop.id } },
+  });
+
+  if (existingLink) {
+    return existingLink.shopifyCustomerId;
+  }
+
+  const shopifyCustomerId = await createOrFindShopifyCustomer(shop, member);
 
   await prisma.memberShopifyLink.create({
     data: {
@@ -139,6 +151,22 @@ async function getOrCreateCustomer(shop, member) {
   });
 
   return shopifyCustomerId;
+}
+
+/**
+ * Returns the Shopify customer GID for the sentinel customer used to keep
+ * a campaign discount's customerSelection list non-empty (Shopify rejects
+ * an empty customers.add[] on discountCodeBasicCreate). Deliberately does
+ * NOT go through MemberShopifyLink like getOrCreateCustomer does — that
+ * table's memberId is a required FK to a real Member row, and the sentinel
+ * (hi@procircle.io) isn't a Member. Looked up by email directly on Shopify
+ * instead, each time it's needed.
+ */
+async function getOrCreateSentinelCustomer(shop, { email, firstName, lastName }) {
+  const existingId = await customerByEmail(shop, email);
+  if (existingId) return existingId;
+
+  return createOrFindShopifyCustomer(shop, { email, firstName, lastName });
 }
 
 /**
@@ -173,4 +201,42 @@ async function addMemberToCampaignDiscount(shop, campaign, shopifyCustomerId) {
   }
 }
 
-export { getOrCreateCustomer, addMemberToCampaignDiscount };
+/**
+ * Removes this customer from the campaign's discount customer-selection
+ * list. Called by the daily expiry cron once a member's access window has
+ * closed without a purchase.
+ */
+async function removeCustomerFromCampaignDiscount(shop, campaign, shopifyCustomerId) {
+  if (!campaign.shopifyDiscountId) {
+    console.warn(
+      `⚠️ Campaign ${campaign.id} (${campaign.slug}) has no shopifyDiscountId — skipping customer removal.`
+    );
+    return;
+  }
+
+  const result = await shopifyGraphQL(shop, DISCOUNT_CODE_BASIC_UPDATE, {
+    id: campaign.shopifyDiscountId,
+    input: {
+      customerSelection: {
+        customers: {
+          remove: [shopifyCustomerId],
+        },
+      },
+    },
+  });
+
+  if (!result.ok || result.data?.discountCodeBasicUpdate?.userErrors?.length) {
+    throw new Error(
+      `Shopify discountCodeBasicUpdate (remove) failed: ${JSON.stringify(
+        result.details || result.data?.discountCodeBasicUpdate?.userErrors
+      )}`
+    );
+  }
+}
+
+export {
+  getOrCreateCustomer,
+  getOrCreateSentinelCustomer,
+  addMemberToCampaignDiscount,
+  removeCustomerFromCampaignDiscount,
+};

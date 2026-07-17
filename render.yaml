@@ -9,3 +9,39 @@ services:
         value: production
       - key: VITE_SHOPIFY_API_KEY
         sync: false
+
+  - type: cron
+    name: procircle-expiry-cron
+    runtime: node
+    schedule: "0 8 * * *"
+    # 0 8 * * * = 8:00 UTC.
+    # CET (winter, UTC+1) -> 9:00 local, which is the target.
+    # CEST (summer, last Sun Mar - last Sun Oct, UTC+2) -> 10:00 local, one
+    # hour late. Render cron schedules are plain UTC cron — they don't shift
+    # for DST — so this drifts by an hour for about half the year. If exact
+    # 9am local matters, this needs a seasonal schedule change (flip to
+    # "0 7 * * *" for the CEST months) or a timezone-aware scheduler outside
+    # Render's cron.
+    buildCommand: cd server && npm install && npx prisma generate --schema prisma/schema.prisma
+    startCommand: cd server && node scripts/dailyExpiryJob.mjs
+    envVars:
+      - key: DATABASE_URL
+        fromService:
+          type: web
+          name: procircle-server
+          envVarKey: DATABASE_URL
+      - key: SHOPIFY_API_VERSION
+        fromService:
+          type: web
+          name: procircle-server
+          envVarKey: SHOPIFY_API_VERSION
+      - key: MAKE_EXPIRY_REMINDER_WEBHOOK_URL
+        fromService:
+          type: web
+          name: procircle-server
+          envVarKey: MAKE_EXPIRY_REMINDER_WEBHOOK_URL
+      - key: MAKE_EXPIRY_NOTIFICATION_WEBHOOK_URL
+        fromService:
+          type: web
+          name: procircle-server
+          envVarKey: MAKE_EXPIRY_NOTIFICATION_WEBHOOK_URL

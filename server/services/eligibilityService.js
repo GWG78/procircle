@@ -41,10 +41,7 @@ async function getOffersForMember(member) {
   const campaigns = await prisma.campaign.findMany({
     where: {
       active: true,
-      AND: [
-        { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
-        { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-      ],
+      OR: [{ startsAt: null }, { startsAt: { lte: now } }],
     },
     include: {
       filters: true,
@@ -59,11 +56,16 @@ async function getOffersForMember(member) {
   for (const campaign of campaigns) {
     if (!memberMatchesFilters(member, campaign.filters)) continue;
 
+    // A confirmed redemption only blocks re-requesting while its access
+    // window is still open. Once accessExpiresAt has passed, the member
+    // was (or will be) removed from the discount by the daily cron, so
+    // they're free to re-join the queue — even before the cron has run.
     const alreadyRedeemed = await prisma.redemption.findFirst({
       where: {
         memberId: member.id,
         campaignId: campaign.id,
         status: "confirmed",
+        OR: [{ accessExpiresAt: null }, { accessExpiresAt: { gt: now } }],
       },
     });
     if (alreadyRedeemed) continue;
@@ -85,6 +87,8 @@ async function getOffersForMember(member) {
  * request, guarding against races between the offers list and the request.
  */
 async function checkEligibility(member, campaignId) {
+  const now = new Date();
+
   const campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
     include: { filters: true },
@@ -98,11 +102,16 @@ async function checkEligibility(member, campaignId) {
     return { eligible: false, reason: "not_eligible" };
   }
 
+  // Same expiry-aware check as getOffersForMember — otherwise a member
+  // whose window has closed would see the campaign as available in their
+  // offers list but get rejected here, since this is the point-in-time
+  // check that actually gates POST /request.
   const alreadyRedeemed = await prisma.redemption.findFirst({
     where: {
       memberId: member.id,
       campaignId: campaign.id,
       status: "confirmed",
+      OR: [{ accessExpiresAt: null }, { accessExpiresAt: { gt: now } }],
     },
   });
   if (alreadyRedeemed) {

@@ -58,11 +58,16 @@ router.post("/request", async (req, res) => {
           return { capReached: true };
         }
 
+        const accessExpiresAt = new Date();
+        accessExpiresAt.setDate(accessExpiresAt.getDate() + campaign.validForDays);
+
         const redemption = await tx.redemption.create({
           data: {
             campaignId: campaign.id,
             memberId: member.id,
             status: "pending",
+            accessGrantedAt: new Date(),
+            accessExpiresAt,
           },
         });
 

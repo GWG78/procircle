@@ -2,9 +2,20 @@
 import express from "express";
 import { PrismaClient } from "@prisma/client";
 import { createCampaignDiscount } from "../services/discountLinkService.js";
+import { getOrCreateSentinelCustomer } from "../services/shopifyCustomerService.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
+
+// discountCodeBasicCreate rejects an empty customers.add[] — this sentinel
+// keeps a campaign's discount customerSelection list non-empty from the
+// moment it's created, before any real member has redeemed. It's never
+// removed by the expiry cron (see shopifyCustomerService.getOrCreateSentinelCustomer).
+const SENTINEL_CUSTOMER = {
+  email: "hi@procircle.io",
+  firstName: "ProCircle",
+  lastName: "Admin",
+};
 
 /**
  * lowercase, spaces -> hyphens, strip anything that isn't a-z/0-9/hyphen,
@@ -38,10 +49,11 @@ async function uniqueSlug(name) {
   return candidate;
 }
 
+// Campaigns no longer carry a fixed expiry — access is a per-member,
+// per-redemption window (Redemption.accessExpiresAt), not a campaign-level
+// date. So a campaign's only states are active/inactive now.
 function deriveStatus(campaign) {
-  if (!campaign.active) return "inactive";
-  if (campaign.expiresAt && new Date(campaign.expiresAt) < new Date()) return "expired";
-  return "active";
+  return campaign.active ? "active" : "inactive";
 }
 
 /**
@@ -71,7 +83,7 @@ function groupFiltersByType(filters) {
 
 /**
  * Checks whether activating `campaignId` would create an audience overlap
- * with any other currently active (non-expired) campaign on `shopId`.
+ * with any other currently active campaign on `shopId`.
  *
  * Loose rule: two campaigns conflict if, for every filterType that BOTH
  * campaigns filter on, their value sets intersect. A filterType only one
@@ -90,13 +102,11 @@ async function checkAudienceConflict(campaignId, shopId) {
   });
   if (!campaign) return null;
 
-  const now = new Date();
   const otherActiveCampaigns = await prisma.campaign.findMany({
     where: {
       shopId,
       id: { not: campaignId },
       active: true,
-      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
     },
     include: { filters: true },
     orderBy: { id: "asc" },
@@ -149,7 +159,7 @@ router.post("/create", async (req, res) => {
       discountType,
       discountValue,
       startsAt,
-      expiresAt,
+      validForDays,
       maxRedemptions,
       maxRedemptionsPerUser,
       filters,
@@ -162,6 +172,13 @@ router.post("/create", async (req, res) => {
     const numericDiscountValue = Number(discountValue);
     if (!discountValue || isNaN(numericDiscountValue) || numericDiscountValue <= 0) {
       return res.status(400).json({ success: false, error: "discountValue must be a positive number" });
+    }
+
+    // Client enforces the same 30-day floor, but that's UI-only — validate
+    // here too since this endpoint can be called directly.
+    const numericValidForDays = validForDays != null && validForDays !== "" ? Number(validForDays) : 30;
+    if (isNaN(numericValidForDays) || numericValidForDays < 30) {
+      return res.status(400).json({ success: false, error: "validForDays must be at least 30" });
     }
 
     const cleanFilters = Array.isArray(filters)
@@ -182,7 +199,7 @@ router.post("/create", async (req, res) => {
           discountType: discountType === "fixed" ? "fixed" : "percentage",
           discountValue: numericDiscountValue,
           startsAt: startsAt ? new Date(startsAt) : null,
-          expiresAt: expiresAt ? new Date(expiresAt) : null,
+          validForDays: numericValidForDays,
           maxRedemptions: maxRedemptions != null && maxRedemptions !== "" ? Number(maxRedemptions) : null,
           maxRedemptionsPerUser:
             maxRedemptionsPerUser != null && maxRedemptionsPerUser !== ""
@@ -206,14 +223,16 @@ router.post("/create", async (req, res) => {
 
     createdCampaignId = campaign.id;
 
-    // 2. Create the backing Shopify discount. If this fails, the campaign
-    // is useless (no link to share) — roll it back rather than leaving an
+    // 2. Get/create the sentinel customer, then create the backing Shopify
+    // discount seeded with it. If either step fails, the campaign is
+    // useless (no link to share) — roll it back rather than leaving an
     // orphaned campaign with no discount.
     let discountResult;
     try {
-      discountResult = await createCampaignDiscount(shop, campaign);
+      const sentinelCustomerId = await getOrCreateSentinelCustomer(shop, SENTINEL_CUSTOMER);
+      discountResult = await createCampaignDiscount(shop, campaign, sentinelCustomerId);
     } catch (err) {
-      console.error(`❌ createCampaignDiscount failed for campaign ${campaign.id}:`, err);
+      console.error(`❌ Discount setup failed for campaign ${campaign.id}:`, err);
 
       await prisma.$transaction([
         prisma.campaignFilter.deleteMany({ where: { campaignId: campaign.id } }),
@@ -296,8 +315,8 @@ router.get("/", async (req, res) => {
  * ===========================================================
  * GET /api/campaigns/active-filters?shop=...&excludeCampaignId=...
  *
- * Filter values currently in use by active, non-expired campaigns,
- * grouped by filterType. Used by the create form to grey out audience
+ * Filter values currently in use by active campaigns, grouped by
+ * filterType. Used by the create form to grey out audience
  * options that would loosely conflict — see Step 3 comment on the UI
  * side for why this only returns the flat sets rather than doing full
  * pairwise conflict checking (that's checkAudienceConflict's job).
@@ -317,12 +336,10 @@ router.get("/active-filters", async (req, res) => {
 
     const excludeCampaignId = req.query.excludeCampaignId ? Number(req.query.excludeCampaignId) : null;
 
-    const now = new Date();
     const activeCampaigns = await prisma.campaign.findMany({
       where: {
         shopId: shop.id,
         active: true,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
         ...(excludeCampaignId ? { id: { not: excludeCampaignId } } : {}),
       },
       include: { filters: true },

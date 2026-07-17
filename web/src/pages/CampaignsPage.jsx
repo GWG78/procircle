@@ -71,7 +71,6 @@ function formatDate(iso) {
 
 function statusTone(status) {
   if (status === 'active') return 'success'
-  if (status === 'expired') return 'warning'
   return undefined // inactive -> default/neutral badge
 }
 
@@ -81,11 +80,9 @@ function discountSummary(campaign) {
     : `${campaign.discountValue}% off all products`
 }
 
-function dateSummary(campaign) {
+function campaignStartSummary(campaign) {
   const start = formatDate(campaign.startsAt)
-  const end = formatDate(campaign.expiresAt)
-  if (!start && !end) return 'No expiry'
-  return `${start || 'No start date'} → ${end || 'No expiry'}`
+  return start ? `Campaign start: ${start}` : 'Started immediately'
 }
 
 function redemptionLimitSummary(campaign) {
@@ -237,10 +234,12 @@ function CampaignAccordion({ campaign, collections, onCopyLink, onToggled, onToa
 
             <Text as="p">
               <Text as="span" fontWeight="semibold">
-                Dates:{' '}
+                Validity window:{' '}
               </Text>
-              {dateSummary(campaign)}
+              {campaign.validForDays} days per member
             </Text>
+
+            <Text as="p">{campaignStartSummary(campaign)}</Text>
 
             {roleFilters.length > 0 && (
               <Text as="p">
@@ -291,13 +290,7 @@ function CampaignAccordion({ campaign, collections, onCopyLink, onToggled, onToa
             )}
 
             <div>
-              {campaign.status === 'expired' ? (
-                <Text as="p" tone="subdued">
-                  This campaign has expired
-                </Text>
-              ) : (
-                <ActiveToggle active={campaign.active} loading={toggling} onClick={handleToggleActive} />
-              )}
+              <ActiveToggle active={campaign.active} loading={toggling} onClick={handleToggleActive} />
             </div>
           </BlockStack>
         </div>
@@ -314,7 +307,7 @@ const EMPTY_FORM = {
   discountType: 'percentage',
   discountValue: '',
   startDate: '',
-  endDate: '',
+  validForDays: '30',
   maxRedemptions: '',
   maxRedemptionsPerUser: '1',
   roles: [],
@@ -408,6 +401,12 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
       return
     }
 
+    const validForDaysNum = Number(form.validForDays)
+    if (!form.validForDays || isNaN(validForDaysNum) || validForDaysNum < 30) {
+      setError('Minimum validity window is 30 days')
+      return
+    }
+
     const filters = [
       ...form.roles.map((value) => ({ filterType: 'role', value })),
       ...form.countries.map((value) => ({ filterType: 'country', value })),
@@ -419,7 +418,7 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
       discountType: form.discountType,
       discountValue: discountValueNum,
       startsAt: form.startDate ? `${form.startDate}T00:00:00Z` : null,
-      expiresAt: form.endDate ? `${form.endDate}T23:59:59Z` : null,
+      validForDays: validForDaysNum,
       maxRedemptions: form.maxRedemptions ? Number(form.maxRedemptions) : null,
       maxRedemptionsPerUser:
         form.maxRedemptionsPerUser === 'unlimited' ? null : Number(form.maxRedemptionsPerUser),
@@ -503,22 +502,24 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
             <Text variant="headingSm" as="h3">
               Dates & limits
             </Text>
-            <FormLayout.Group>
-              <TextField
-                label="Start date"
-                type="date"
-                value={form.startDate}
-                onChange={setField('startDate')}
-                autoComplete="off"
-              />
-              <TextField
-                label="End date"
-                type="date"
-                value={form.endDate}
-                onChange={setField('endDate')}
-                autoComplete="off"
-              />
-            </FormLayout.Group>
+            <TextField
+              label="Campaign start date"
+              type="date"
+              helpText="Leave blank to start immediately"
+              value={form.startDate}
+              onChange={setField('startDate')}
+              autoComplete="off"
+            />
+            <TextField
+              label="Member validity window (days)"
+              type="number"
+              min={30}
+              helpText="Members will have this many days to use the deal after claiming it. Minimum 30 days."
+              value={form.validForDays}
+              onChange={setField('validForDays')}
+              autoComplete="off"
+              requiredIndicator
+            />
             <FormLayout.Group>
               <TextField
                 label="Max total redemptions"

@@ -58,24 +58,39 @@ async function shopifyGraphQL(shop, query, variables) {
 }
 
 /**
- * Creates the one Shopify discount code for a campaign, starting with an
- * empty customer-selection list — members are added to it as they redeem
- * (see shopifyCustomerService.addMemberToCampaignDiscount).
+ * Creates the one Shopify discount code for a campaign, with the customer
+ * list seeded with a single sentinel customer (see campaigns.mjs) rather
+ * than `customerSelection: { all: true }`. An explicit list is required for
+ * removeCustomerFromCampaignDiscount to actually gate checkout — `all: true`
+ * ignores the list entirely, which was silently defeating the whole
+ * expiry/removal mechanism. `discountCodeBasicCreate` also rejects an empty
+ * `customers.add` array, which is why a sentinel is needed at all: real
+ * members are added via shopifyCustomerService.addMemberToCampaignDiscount
+ * as they redeem, and removed by the daily expiry cron — the sentinel just
+ * keeps the list non-empty and is never itself removed.
+ *
+ * Campaigns no longer carry a fixed expiry — access is a per-member window
+ * (Redemption.accessExpiresAt) enforced by the daily cron removing expired
+ * members from this discount's customer selection, not a hard end date on
+ * the discount itself. So `endsAt` is always null here.
  *
  * @param {{ shopDomain: string, accessToken: string }} shop
- * @param {{ name: string, slug: string, discountType: string, discountValue: number, startsAt?: Date|string|null, expiresAt?: Date|string|null, maxRedemptions?: number|null }} campaign
+ * @param {{ name: string, slug: string, discountType: string, discountValue: number, startsAt?: Date|string|null, maxRedemptions?: number|null }} campaign
+ * @param {string} sentinelCustomerId Shopify customer GID seeded into customerSelection.customers.add
  * @returns {Promise<{ discountCode: string, discountLink: string, shopifyDiscountId: string }>}
  */
-async function createCampaignDiscount(shop, campaign) {
+async function createCampaignDiscount(shop, campaign, sentinelCustomerId) {
   const discountCode = `PROCIRCLE-${campaign.slug.toUpperCase()}`;
 
   const input = {
     title: `ProCircle — ${campaign.name}`,
     code: discountCode,
     startsAt: campaign.startsAt ?? new Date().toISOString(),
-    endsAt: campaign.expiresAt ?? null,
+    endsAt: null,
     customerSelection: {
-      all: true
+      customers: {
+        add: [sentinelCustomerId],
+      },
     },
     customerGets: {
       value:
