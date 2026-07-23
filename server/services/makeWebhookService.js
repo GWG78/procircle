@@ -20,10 +20,16 @@
 // console.warn noise, meant to be noticeable to whoever monitors these logs
 // (e.g. grep/alert on "[ALERT]") — a missed webhook is a support/reliability
 // gap, not something that should disappear silently.
+//
+// Returns true/false for success — callers that don't have anything to gate
+// on it (triggerCodeEmail, triggerOrderSync, triggerExpiryNotification) just
+// don't propagate the return value, which is unchanged for them. triggerExpiryReminder
+// does propagate it, so dailyExpiryJob.mjs can leave reminderSentAt unset on
+// failure and let the redemption retry on the next run.
 async function postToMakeWebhook({ url, missingUrlContext, payload, failureContext }) {
   if (!url) {
     console.error(`[ALERT] ${missingUrlContext}`);
-    return;
+    return false;
   }
 
   try {
@@ -35,9 +41,13 @@ async function postToMakeWebhook({ url, missingUrlContext, payload, failureConte
 
     if (!res.ok) {
       console.error(`[ALERT] ${failureContext} (HTTP ${res.status})`);
+      return false;
     }
+
+    return true;
   } catch (err) {
     console.error(`[ALERT] ${failureContext} (${err.message})`);
+    return false;
   }
 }
 
@@ -61,9 +71,13 @@ async function triggerOrderSync({ memberEmail, campaignName, brandName, shopifyO
   });
 }
 
+// Returns true if the reminder was actually sent, false otherwise — callers
+// (dailyExpiryJob.mjs) use this to decide whether to set reminderSentAt, so
+// a failed attempt stays eligible for the reminder query and retries on the
+// next run instead of being silently marked as sent.
 async function triggerExpiryReminder({ memberEmail, campaignName, brandName, accessExpiresAt, discountLink }) {
   const consequence = `member ${memberEmail} will NOT receive their 48hr expiry reminder for campaign ${campaignName}.`;
-  await postToMakeWebhook({
+  return postToMakeWebhook({
     url: process.env.MAKE_EXPIRY_REMINDER_WEBHOOK_URL,
     missingUrlContext: `triggerExpiryReminder: MAKE_EXPIRY_REMINDER_WEBHOOK_URL not set — ${consequence}`,
     payload: { memberEmail, campaignName, brandName, accessExpiresAt, discountLink },

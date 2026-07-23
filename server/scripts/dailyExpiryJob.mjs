@@ -34,13 +34,22 @@ async function run() {
 
     for (const redemption of reminders) {
       try {
-        await triggerExpiryReminder({
+        const sent = await triggerExpiryReminder({
           memberEmail: redemption.member.email,
           campaignName: redemption.campaign.name,
           brandName: redemption.campaign.shop.shopDomain,
           accessExpiresAt: redemption.accessExpiresAt,
           discountLink: redemption.campaign.discountLink,
         });
+
+        if (!sent) {
+          // triggerExpiryReminder never throws — it already logged its own
+          // [ALERT] line. Leave reminderSentAt unset so this redemption is
+          // still eligible for tomorrow's reminder query and gets retried,
+          // rather than being marked as sent when it wasn't.
+          console.log(`[dailyExpiryJob] Reminder NOT sent for redemption ${redemption.id} — will retry on next run`);
+          continue;
+        }
 
         await prisma.redemption.update({
           where: { id: redemption.id },
