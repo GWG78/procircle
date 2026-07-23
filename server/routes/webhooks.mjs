@@ -2,6 +2,7 @@ import express from "express";
 import crypto from "crypto";
 import { PrismaClient } from "@prisma/client";
 import appUninstalledHandler from "../webhooks/appUninstalled.mjs";
+import discountDeletedHandler from "../webhooks/discountDeleted.mjs";
 import { shopifyApi, DeliveryMethod } from "@shopify/shopify-api";
 import { triggerOrderSync } from "../services/makeWebhookService.js";
 
@@ -160,6 +161,47 @@ router.post(
       res.status(200).send("Uninstall processed.");
     } catch (err) {
       console.error("❌ Error handling app uninstall webhook:", err);
+      res.status(500).send("Webhook failed.");
+    }
+  }
+);
+
+/**
+ * 🗑️ Handle DISCOUNTS_DELETE webhook (discounts/delete)
+ */
+router.post(
+  "/discounts-delete",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const hmacHeader = req.get("X-Shopify-Hmac-Sha256");
+      const secret = process.env.SHOPIFY_API_SECRET;
+      const rawBody = req.body;
+
+      if (!Buffer.isBuffer(rawBody)) {
+        console.error("❌ Expected raw buffer, got:", typeof rawBody);
+        return res.status(400).send("Invalid raw body type");
+      }
+
+      const generatedHmac = crypto
+        .createHmac("sha256", secret)
+        .update(rawBody)
+        .digest("base64");
+
+      if (generatedHmac !== hmacHeader) {
+        console.error("❌ Webhook verification failed — invalid signature");
+        return res.status(401).send("Unauthorized");
+      }
+
+      console.log("✅ Discount Deleted Webhook verified!");
+      const body = JSON.parse(rawBody.toString("utf8"));
+      const shopDomain = req.get("X-Shopify-Shop-Domain");
+
+      await discountDeletedHandler("DISCOUNTS_DELETE", shopDomain, body);
+
+      res.status(200).send("Discount deletion processed.");
+    } catch (err) {
+      console.error("❌ Error handling discount deleted webhook:", err);
       res.status(500).send("Webhook failed.");
     }
   }

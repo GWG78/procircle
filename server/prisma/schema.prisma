@@ -46,6 +46,10 @@ model Campaign {
   status                String       @default("active")
   pausedAt              DateTime?
   endedAt               DateTime?
+  // Set only when the campaign auto-ended because its Shopify discount was
+  // deleted outside the app (see webhooks/discountDeleted.mjs). Null for a
+  // manual End Campaign action — distinguishes the two in logs/DB.
+  endedReason            String?
   startsAt              DateTime?
   validForDays          Int          @default(30)
 

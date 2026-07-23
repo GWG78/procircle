@@ -4,7 +4,7 @@ import { PrismaClient } from "@prisma/client";
 import { createCampaignDiscount, setCampaignDiscountActive } from "../services/discountLinkService.js";
 import { getOrCreateSentinelCustomer } from "../services/shopifyCustomerService.js";
 import { countMatchingMembers } from "../services/eligibilityService.js";
-import { triggerCampaignEnded } from "../services/makeWebhookService.js";
+import { endCampaignAndNotify } from "../services/campaignLifecycleService.js";
 import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
 
 const prisma = new PrismaClient();
@@ -562,14 +562,14 @@ router.post("/:id/end", verifyShopifyAuth, async (req, res) => {
       return res.status(400).json({ success: false, error: "Campaign has already ended" });
     }
 
-    const claimedMembers = await prisma.redemption.findMany({
-      where: { campaignId, status: "confirmed", shopifyOrderId: null },
-      include: { member: true },
-    });
-
     if (campaign.shopifyDiscountId) {
       try {
-        await setCampaignDiscountActive(shop, campaign.shopifyDiscountId, false);
+        // If the discount was already deleted outside the app (e.g. via
+        // Shopify's own Discounts page), this resolves normally instead of
+        // throwing — see setCampaignDiscountActive's DISCOUNT_ALREADY_GONE
+        // handling — so a merchant can still End a campaign whose discount
+        // is already gone rather than getting stuck on a 500.
+        await setCampaignDiscountActive(shop, campaign.shopifyDiscountId, false, { campaignId: campaign.id });
       } catch (err) {
         console.error(`❌ Failed to deactivate Shopify discount for campaign ${campaign.id}:`, err);
         return res.status(500).json({
@@ -582,23 +582,14 @@ router.post("/:id/end", verifyShopifyAuth, async (req, res) => {
       console.warn(`⚠️ Campaign ${campaign.id} (${campaign.slug}) has no shopifyDiscountId — skipping Shopify deactivate call.`);
     }
 
-    const updated = await prisma.campaign.update({
+    // Race-safe against the discounts/delete webhook landing at the same
+    // moment — see campaignLifecycleService for how that's handled.
+    await endCampaignAndNotify(campaignId, { shopDomain: shop.shopDomain });
+
+    const updated = await prisma.campaign.findUnique({
       where: { id: campaignId },
-      data: { status: "ended", endedAt: new Date() },
       include: includeForShapedCampaign(),
     });
-
-    // Best-effort — the campaign has already ended on both the DB and
-    // Shopify side by this point, so a notification failure here shouldn't
-    // (and per the never-throw pattern in makeWebhookService.js, can't)
-    // undo or block that.
-    for (const redemption of claimedMembers) {
-      await triggerCampaignEnded({
-        memberEmail: redemption.member.email,
-        campaignName: campaign.name,
-        brandName: shop.shopDomain,
-      });
-    }
 
     res.json({ success: true, campaign: { ...shapeCampaign(updated), audienceSize: await countMatchingMembers(updated.filters) } });
   } catch (err) {

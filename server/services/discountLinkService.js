@@ -146,29 +146,51 @@ async function createCampaignDiscount(shop, campaign, sentinelCustomerId) {
   return { discountCode: returnedCode, discountLink, shopifyDiscountId };
 }
 
+const DISCOUNT_ALREADY_GONE_MESSAGE = "Code discount does not exist.";
+
 /**
  * Activates (discountCodeActivate) or deactivates (discountCodeDeactivate)
  * the Shopify discount backing a campaign, so toggling a campaign's active
  * state in the app actually gates checkout — not just our own eligibility
- * engine. Called from campaigns.mjs's toggle-active handler *before* the DB
- * write, so a Shopify failure never leaves Campaign.active out of sync with
- * the real discount's state.
+ * engine. Called from campaigns.mjs's pause/resume/end handlers *before* the
+ * DB write, so a Shopify failure never leaves Campaign.status out of sync
+ * with the real discount's state.
+ *
+ * If the discount was deleted outside the app (merchant deleted it directly
+ * in Shopify's Discounts page), Shopify returns a userError rather than a
+ * transport-level failure: {"field":["id"],"message":"Code discount does
+ * not exist."}. That specific case is treated as already-in-target-state —
+ * logged as a warning (with campaignId if the caller has one) and resolved
+ * normally rather than thrown, so the caller can proceed to update the DB
+ * as if the Shopify call had succeeded. Any other userError still throws.
  *
  * @param {{ shopDomain: string, accessToken: string }} shop
  * @param {string} shopifyDiscountId
+ * @param {boolean} active
+ * @param {{ campaignId?: number|string }} [context] Only used for the warning log below.
  */
-async function setCampaignDiscountActive(shop, shopifyDiscountId, active) {
+async function setCampaignDiscountActive(shop, shopifyDiscountId, active, context = {}) {
   const mutation = active ? DISCOUNT_CODE_ACTIVATE : DISCOUNT_CODE_DEACTIVATE;
   const mutationName = active ? "discountCodeActivate" : "discountCodeDeactivate";
 
   const data = await shopifyGraphQL(shop, mutation, { id: shopifyDiscountId });
   const result = data?.[mutationName];
 
-  if (!result || result.userErrors?.length) {
+  const userErrors = result?.userErrors || [];
+  const alreadyGone = userErrors.some((e) => e.message === DISCOUNT_ALREADY_GONE_MESSAGE);
+
+  if (alreadyGone) {
+    console.warn(
+      `⚠️ Shopify ${mutationName}: discount already gone (deleted outside the app) — campaignId=${context.campaignId ?? "unknown"}, shopifyDiscountId=${shopifyDiscountId}. Treating as already in target state.`
+    );
+    return;
+  }
+
+  if (!result || userErrors.length) {
     throw new Error(
-      `Shopify ${mutationName} failed: ${JSON.stringify(result?.userErrors || result)}`
+      `Shopify ${mutationName} failed: ${JSON.stringify(userErrors.length ? userErrors : result)}`
     );
   }
 }
 
-export { createCampaignDiscount, setCampaignDiscountActive };
+export { createCampaignDiscount, setCampaignDiscountActive, DISCOUNT_ALREADY_GONE_MESSAGE };
