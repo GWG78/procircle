@@ -21,6 +21,7 @@ import {
   Tooltip,
 } from '@shopify/polaris'
 import { ChevronDownIcon, ChevronUpIcon, ClipboardIcon } from '@shopify/polaris-icons'
+import { useAppBridge } from '@shopify/app-bridge-react'
 
 const shop = new URLSearchParams(window.location.search).get('shop') || ''
 
@@ -152,6 +153,7 @@ function ActiveToggle({ active, loading, onClick }) {
    Campaign accordion
    ============================================================ */
 function CampaignAccordion({ campaign, collections, onCopyLink, onToggled, onToastError }) {
+  const shopify = useAppBridge()
   const [open, setOpen] = useState(false)
   const [toggling, setToggling] = useState(false)
   const [conflictMessage, setConflictMessage] = useState(null)
@@ -160,9 +162,11 @@ function CampaignAccordion({ campaign, collections, onCopyLink, onToggled, onToa
     setToggling(true)
     setConflictMessage(null)
     try {
+      const token = await shopify.idToken()
       const res = await fetch(`/api/campaigns/${campaign.id}/toggle-active?shop=${shop}`, {
         method: 'PATCH',
         credentials: 'include',
+        headers: { Authorization: `Bearer ${token}` },
       })
       const data = await res.json()
 
@@ -182,7 +186,7 @@ function CampaignAccordion({ campaign, collections, onCopyLink, onToggled, onToa
     } finally {
       setToggling(false)
     }
-  }, [campaign.id, onToggled, onToastError])
+  }, [campaign.id, onToggled, onToastError, shopify])
 
   const roleFilters = campaign.filters.filter((f) => f.filterType === 'role')
   const countryFilters = campaign.filters.filter((f) => f.filterType === 'country')
@@ -319,6 +323,7 @@ const EMPTY_FORM = {
 const EMPTY_ACTIVE_FILTERS = { role: [], country: [], resort: [] }
 
 function CreateCampaignModal({ open, onClose, onCreated, collections }) {
+  const shopify = useAppBridge()
   const [form, setForm] = useState(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -427,10 +432,11 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
 
     setSubmitting(true)
     try {
+      const token = await shopify.idToken()
       const res = await fetch(`/api/campaigns/create?shop=${shop}`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
       })
       const data = await res.json()
@@ -446,7 +452,7 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
     } finally {
       setSubmitting(false)
     }
-  }, [form, onCreated])
+  }, [form, onCreated, shopify])
 
   const shownCollections = collections.length
 

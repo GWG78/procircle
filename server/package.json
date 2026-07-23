@@ -8,7 +8,7 @@
     "start": "node index.js",
     "start:dev": "pkill -f node || true && node index.js",
     "start:prod": "cp .env.prod .env && node index.js",
-    "seed": "node prisma/seed.mjs" 
+    "seed": "node prisma/seed.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.18.0",
@@ -16,6 +16,7 @@
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "express-rate-limit": "^8.6.0",
     "express-session": "^1.18.2",
     "node-fetch": "^3.3.2",
     "prisma": "^6.18.0"

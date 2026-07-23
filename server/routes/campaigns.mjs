@@ -3,6 +3,7 @@ import express from "express";
 import { PrismaClient } from "@prisma/client";
 import { createCampaignDiscount } from "../services/discountLinkService.js";
 import { getOrCreateSentinelCustomer } from "../services/shopifyCustomerService.js";
+import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -140,19 +141,13 @@ async function checkAudienceConflict(campaignId, shopId) {
  * POST /api/campaigns/create?shop=...
  * ===========================================================
  */
-router.post("/create", async (req, res) => {
+router.post("/create", verifyShopifyAuth, async (req, res) => {
   let createdCampaignId = null;
 
   try {
-    const shopDomain = req.query.shop;
-    if (!shopDomain) {
-      return res.status(400).json({ success: false, error: "shop is required" });
-    }
-
-    const shop = await prisma.shop.findUnique({ where: { shopDomain } });
-    if (!shop) {
-      return res.status(404).json({ success: false, error: "Shop not found" });
-    }
+    // Authoritative shop comes from the verified session token, not
+    // req.query.shop — that's caller-supplied and shouldn't be trusted.
+    const shop = req.shopifyShop;
 
     const {
       name,
@@ -368,17 +363,9 @@ router.get("/active-filters", async (req, res) => {
  * deactivating (true -> false) never conflicts, so it's unconditional.
  * ===========================================================
  */
-router.patch("/:id/toggle-active", async (req, res) => {
+router.patch("/:id/toggle-active", verifyShopifyAuth, async (req, res) => {
   try {
-    const shopDomain = req.query.shop;
-    if (!shopDomain) {
-      return res.status(400).json({ success: false, error: "shop is required" });
-    }
-
-    const shop = await prisma.shop.findUnique({ where: { shopDomain } });
-    if (!shop) {
-      return res.status(404).json({ success: false, error: "Shop not found" });
-    }
+    const shop = req.shopifyShop;
 
     const campaignId = Number(req.params.id);
     if (isNaN(campaignId)) {

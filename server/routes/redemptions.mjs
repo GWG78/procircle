@@ -1,5 +1,6 @@
 // routes/redemptions.mjs
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { PrismaClient } from "@prisma/client";
 import { getOffersForMember, checkEligibility } from "../services/eligibilityService.js";
 import { getOrCreateCustomer, addMemberToCampaignDiscount } from "../services/shopifyCustomerService.js";
@@ -8,10 +9,37 @@ import { triggerCodeEmail } from "../services/makeWebhookService.js";
 const prisma = new PrismaClient();
 const router = express.Router();
 
+// This route has no caller identity to verify — it's hit by an anonymous,
+// external member-facing flow with no session/token of any kind (see
+// verifyShopifyAuth, which only applies to the embedded-admin campaigns
+// routes). Left intentionally public; these two limiters are abuse
+// protection, not authentication. IP limiter catches scripted hammering;
+// email limiter catches someone spamming a single member's inbox with
+// redemption emails or brute-forcing a campaign's redemption cap via one
+// address. Both are in-memory (single web dyno, per render.yaml) — fine
+// for abuse protection, not a substitute for real rate limiting infra if
+// this app is ever scaled beyond one instance.
+const ipLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: "Too many requests. Please try again later." },
+});
+
+const emailLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => String(req.body?.memberEmail || "").trim().toLowerCase() || req.ip,
+  message: { success: false, error: "Too many requests for this email. Please try again later." },
+});
+
 /* ============================================================
    POST /api/redemptions/request
    ============================================================ */
-router.post("/request", async (req, res) => {
+router.post("/request", ipLimiter, emailLimiter, async (req, res) => {
   try {
     const { memberEmail, campaignId } = req.body || {};
 
