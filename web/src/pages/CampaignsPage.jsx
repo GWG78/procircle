@@ -554,30 +554,11 @@ function EndCampaignModal({ campaign, onClose, onEnded, onToastError }) {
 /* ============================================================
    Campaigns list — each campaign is a bordered card split into a left
    info zone and a right stats/actions zone by a vertical divider. Column
-   headers for the right zone's stats render once, above the list.
+   headers for the right zone's stats repeat inside every card, above
+   that card's stats sub-row.
    ============================================================ */
 const LEFT_ZONE_FLEX = '3 3 0'
 const RIGHT_ZONE_FLEX = '2 2 0'
-
-function CampaignStatsHeader() {
-  return (
-    <div style={{ display: 'flex' }}>
-      <div style={{ flex: LEFT_ZONE_FLEX }} />
-      <div style={{ width: '1px' }} />
-      <div style={{ flex: RIGHT_ZONE_FLEX, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', padding: '0 1rem' }}>
-        <Text as="span" tone="subdued" variant="bodySm" fontWeight="medium">
-          Sales
-        </Text>
-        <Text as="span" tone="subdued" variant="bodySm" fontWeight="medium">
-          Revenue
-        </Text>
-        <Text as="span" tone="subdued" variant="bodySm" fontWeight="medium">
-          Redemption cap
-        </Text>
-      </div>
-    </div>
-  )
-}
 
 function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested, onCopyLink, loading }) {
   const canPause = campaign.status === 'active' || campaign.status === 'cap_reached' || campaign.status === 'draft'
@@ -621,12 +602,25 @@ function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested,
         <div style={{ width: '1px', backgroundColor: 'var(--p-color-border)' }} />
 
         <div style={{ flex: RIGHT_ZONE_FLEX, padding: '1rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
-            <Text as="span">{campaign.salesCount}</Text>
-            <Text as="span">{formatRevenue(campaign.salesRevenue)}</Text>
-            <Text as="span">
-              {campaign.confirmedRedemptions} / {campaign.maxRedemptions ?? '∞'}
-            </Text>
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+              <Text as="span" tone="subdued" variant="bodySm" fontWeight="medium">
+                Sales
+              </Text>
+              <Text as="span" tone="subdued" variant="bodySm" fontWeight="medium">
+                Revenue
+              </Text>
+              <Text as="span" tone="subdued" variant="bodySm" fontWeight="medium">
+                Redemption cap
+              </Text>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+              <Text as="span">{campaign.salesCount}</Text>
+              <Text as="span">{formatRevenue(campaign.salesRevenue)}</Text>
+              <Text as="span">
+                {campaign.confirmedRedemptions} / {campaign.maxRedemptions ?? '∞'}
+              </Text>
+            </div>
           </div>
 
           <InlineStack gap="200" align="end">
@@ -655,7 +649,6 @@ function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested,
 function CampaignsList({ campaigns, collections, onPauseResume, onEndRequested, onCopyLink, actionLoadingId }) {
   return (
     <BlockStack gap="300">
-      <CampaignStatsHeader />
       {campaigns.map((campaign) => (
         <CampaignRowCard
           key={campaign.id}
