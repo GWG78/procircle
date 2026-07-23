@@ -3,6 +3,8 @@ import express from "express";
 import { PrismaClient } from "@prisma/client";
 import { createCampaignDiscount, setCampaignDiscountActive } from "../services/discountLinkService.js";
 import { getOrCreateSentinelCustomer } from "../services/shopifyCustomerService.js";
+import { countMatchingMembers } from "../services/eligibilityService.js";
+import { triggerCampaignEnded } from "../services/makeWebhookService.js";
 import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
 
 const prisma = new PrismaClient();
@@ -50,26 +52,54 @@ async function uniqueSlug(name) {
   return candidate;
 }
 
-// Campaigns no longer carry a fixed expiry — access is a per-member,
-// per-redemption window (Redemption.accessExpiresAt), not a campaign-level
-// date. So a campaign's only states are active/inactive now.
-function deriveStatus(campaign) {
-  return campaign.active ? "active" : "inactive";
+/**
+ * Derives the 5-state display status from the stored `status` field plus
+ * existing fields — only "paused" and "ended" are ever stored directly.
+ * "draft" and "cap_reached" are passive/automatic states layered on top of
+ * "active", the same way Shopify's own discount startsAt already gates
+ * usability without a separate stored flag:
+ *   - status !== "active"          -> pass through ("paused" / "ended")
+ *   - active + startsAt in future  -> "draft" (not yet live to members)
+ *   - active + cap reached         -> "cap_reached"
+ *   - otherwise                    -> "active"
+ */
+function deriveStatus(campaign, confirmedCount) {
+  if (campaign.status !== "active") return campaign.status;
+
+  if (campaign.maxRedemptions != null && confirmedCount >= campaign.maxRedemptions) {
+    return "cap_reached";
+  }
+
+  if (campaign.startsAt && new Date(campaign.startsAt) > new Date()) {
+    return "draft";
+  }
+
+  return "active";
 }
 
 /**
  * Shapes a Campaign row (with `filters` and `redemptions` included) into
  * the response shape the UI expects: derived `status`, total redemption
- * `_count`, and a separate `confirmedRedemptions` count. Shared by every
+ * `_count`, `confirmedRedemptions`, and sales figures. Shared by every
  * route that returns campaign objects so the shape stays consistent.
+ *
+ * `redemptions` must include at least { status, shopifyOrderId, orderAmount }
+ * for the sales figures to be accurate — callers that only need status
+ * (e.g. nothing currently) can omit the rest, but every route below selects
+ * all three since sales are now part of the standard campaign shape.
  */
 function shapeCampaign(campaign) {
   const { redemptions = [], ...rest } = campaign;
+  const confirmedRedemptions = redemptions.filter((r) => r.status === "confirmed");
+  const sales = confirmedRedemptions.filter((r) => r.shopifyOrderId != null);
+
   return {
     ...rest,
-    status: deriveStatus(rest),
+    status: deriveStatus(rest, confirmedRedemptions.length),
     _count: { redemptions: redemptions.length },
-    confirmedRedemptions: redemptions.filter((r) => r.status === "confirmed").length,
+    confirmedRedemptions: confirmedRedemptions.length,
+    salesCount: sales.length,
+    salesRevenue: sales.reduce((sum, r) => sum + (r.orderAmount || 0), 0),
   };
 }
 
@@ -107,7 +137,7 @@ async function checkAudienceConflict(campaignId, shopId) {
     where: {
       shopId,
       id: { not: campaignId },
-      active: true,
+      status: "active",
     },
     include: { filters: true },
     orderBy: { id: "asc" },
@@ -295,11 +325,21 @@ router.get("/", async (req, res) => {
       orderBy: { createdAt: "desc" },
       include: {
         filters: true,
-        redemptions: { select: { status: true } },
+        redemptions: { select: { status: true, shopifyOrderId: true, orderAmount: true } },
       },
     });
 
-    res.json({ success: true, campaigns: campaigns.map(shapeCampaign) });
+    // audienceSize is a live count against the Member table, not something
+    // stored on Campaign — computed per campaign here rather than inside
+    // shapeCampaign so shapeCampaign can stay a plain sync function.
+    const shaped = await Promise.all(
+      campaigns.map(async (campaign) => ({
+        ...shapeCampaign(campaign),
+        audienceSize: await countMatchingMembers(campaign.filters),
+      }))
+    );
+
+    res.json({ success: true, campaigns: shaped });
   } catch (err) {
     console.error("❌ Error loading campaigns:", err);
     res.status(500).json({ success: false, error: "Failed to load campaigns" });
@@ -334,7 +374,7 @@ router.get("/active-filters", async (req, res) => {
     const activeCampaigns = await prisma.campaign.findMany({
       where: {
         shopId: shop.id,
-        active: true,
+        status: "active",
         ...(excludeCampaignId ? { id: { not: excludeCampaignId } } : {}),
       },
       include: { filters: true },
@@ -355,79 +395,240 @@ router.get("/active-filters", async (req, res) => {
 });
 
 /**
+ * Loads a campaign scoped to the verified shop, or null. Shared by the
+ * three lifecycle actions below.
+ */
+async function findOwnedCampaign(campaignId, shopId) {
+  return prisma.campaign.findFirst({ where: { id: campaignId, shopId } });
+}
+
+function includeForShapedCampaign() {
+  return {
+    filters: true,
+    redemptions: { select: { status: true, shopifyOrderId: true, orderAmount: true } },
+  };
+}
+
+/**
  * ===========================================================
- * PATCH /api/campaigns/:id/toggle-active?shop=...
+ * POST /api/campaigns/:id/pause?shop=...
  *
- * Flips the campaign's active state. Reactivating (false -> true) runs
- * the audience conflict check first and refuses with 409 if it finds one;
- * deactivating (true -> false) never conflicts, so it's unconditional.
- *
- * The Shopify discount is activated/deactivated *before* the DB write, and
- * the DB write only happens if that Shopify call succeeds — otherwise
- * Campaign.active would say one thing while the real discount (still
- * redeemable at checkout) says another. If Shopify fails, nothing changes
- * on either side and the request 500s.
+ * DB-only: does NOT touch the Shopify discount. Members who already
+ * claimed a code (confirmed Redemption) keep a working code and can still
+ * redeem — pausing only stops the campaign from being offered to new
+ * members via getOffersForMember/checkEligibility. Fully reversible via
+ * /resume with no Shopify-side cleanup needed, since nothing was changed
+ * on Shopify. No confirmation modal on the frontend — simple, safe toggle.
  * ===========================================================
  */
-router.patch("/:id/toggle-active", verifyShopifyAuth, async (req, res) => {
+router.post("/:id/pause", verifyShopifyAuth, async (req, res) => {
   try {
     const shop = req.shopifyShop;
-
     const campaignId = Number(req.params.id);
     if (isNaN(campaignId)) {
       return res.status(400).json({ success: false, error: "Invalid campaign id" });
     }
 
-    const campaign = await prisma.campaign.findFirst({
-      where: { id: campaignId, shopId: shop.id },
-    });
+    const campaign = await findOwnedCampaign(campaignId, shop.id);
     if (!campaign) {
       return res.status(404).json({ success: false, error: "Campaign not found" });
     }
-
-    const activating = !campaign.active;
-
-    if (activating) {
-      const conflict = await checkAudienceConflict(campaignId, shop.id);
-      if (conflict) {
-        return res.status(409).json({
-          error: "conflict",
-          message: `This campaign conflicts with '${conflict.name}'. Deactivate that campaign first or adjust the audience filters before reactivating.`,
-          conflictingCampaign: conflict,
-        });
-      }
-    }
-
-    if (campaign.shopifyDiscountId) {
-      try {
-        await setCampaignDiscountActive(shop, campaign.shopifyDiscountId, activating);
-      } catch (err) {
-        console.error(`❌ Failed to ${activating ? "activate" : "deactivate"} Shopify discount for campaign ${campaign.id}:`, err);
-        return res.status(500).json({
-          success: false,
-          error: `Failed to ${activating ? "activate" : "deactivate"} the Shopify discount. Campaign status was not changed.`,
-          details: err.message,
-        });
-      }
-    } else {
-      console.warn(
-        `⚠️ Campaign ${campaign.id} (${campaign.slug}) has no shopifyDiscountId — skipping Shopify activate/deactivate call.`
-      );
+    if (campaign.status !== "active") {
+      return res.status(400).json({ success: false, error: `Cannot pause a campaign with status "${campaign.status}"` });
     }
 
     const updated = await prisma.campaign.update({
       where: { id: campaignId },
-      data: { active: activating },
-      include: {
-        filters: true,
-        redemptions: { select: { status: true } },
-      },
+      data: { status: "paused", pausedAt: new Date() },
+      include: includeForShapedCampaign(),
     });
 
-    res.json({ success: true, campaign: shapeCampaign(updated) });
+    res.json({ success: true, campaign: { ...shapeCampaign(updated), audienceSize: await countMatchingMembers(updated.filters) } });
   } catch (err) {
-    console.error("❌ Error toggling campaign active state:", err);
-    res.status(500).json({ success: false, error: "Failed to update campaign" });
+    console.error("❌ Error pausing campaign:", err);
+    res.status(500).json({ success: false, error: "Failed to pause campaign" });
+  }
+});
+
+/**
+ * ===========================================================
+ * POST /api/campaigns/:id/resume?shop=...
+ *
+ * Reverses /pause. Runs the same audience conflict check as the old
+ * reactivation path (refuses with 409 if another active campaign now
+ * overlaps). DB-only — pause never touched Shopify, so resume has
+ * nothing to undo there either.
+ * ===========================================================
+ */
+router.post("/:id/resume", verifyShopifyAuth, async (req, res) => {
+  try {
+    const shop = req.shopifyShop;
+    const campaignId = Number(req.params.id);
+    if (isNaN(campaignId)) {
+      return res.status(400).json({ success: false, error: "Invalid campaign id" });
+    }
+
+    const campaign = await findOwnedCampaign(campaignId, shop.id);
+    if (!campaign) {
+      return res.status(404).json({ success: false, error: "Campaign not found" });
+    }
+    if (campaign.status !== "paused") {
+      return res.status(400).json({ success: false, error: `Cannot resume a campaign with status "${campaign.status}"` });
+    }
+
+    const conflict = await checkAudienceConflict(campaignId, shop.id);
+    if (conflict) {
+      return res.status(409).json({
+        error: "conflict",
+        message: `This campaign conflicts with '${conflict.name}'. Pause or end that campaign first, or adjust the audience filters before resuming.`,
+        conflictingCampaign: conflict,
+      });
+    }
+
+    const updated = await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { status: "active", pausedAt: null },
+      include: includeForShapedCampaign(),
+    });
+
+    res.json({ success: true, campaign: { ...shapeCampaign(updated), audienceSize: await countMatchingMembers(updated.filters) } });
+  } catch (err) {
+    console.error("❌ Error resuming campaign:", err);
+    res.status(500).json({ success: false, error: "Failed to resume campaign" });
+  }
+});
+
+/**
+ * ===========================================================
+ * GET /api/campaigns/:id/claimed-count?shop=...
+ *
+ * Count of members who claimed a code (confirmed Redemption) but haven't
+ * used it at checkout yet (shopifyOrderId still null). Powers the End
+ * Campaign confirmation modal only — deliberately not part of the main
+ * campaign list/dashboard response.
+ * ===========================================================
+ */
+router.get("/:id/claimed-count", verifyShopifyAuth, async (req, res) => {
+  try {
+    const shop = req.shopifyShop;
+    const campaignId = Number(req.params.id);
+    if (isNaN(campaignId)) {
+      return res.status(400).json({ success: false, error: "Invalid campaign id" });
+    }
+
+    const campaign = await findOwnedCampaign(campaignId, shop.id);
+    if (!campaign) {
+      return res.status(404).json({ success: false, error: "Campaign not found" });
+    }
+
+    const count = await prisma.redemption.count({
+      where: { campaignId, status: "confirmed", shopifyOrderId: null },
+    });
+
+    res.json({ success: true, count });
+  } catch (err) {
+    console.error("❌ Error counting claimed redemptions:", err);
+    res.status(500).json({ success: false, error: "Failed to count claimed redemptions" });
+  }
+});
+
+/**
+ * ===========================================================
+ * POST /api/campaigns/:id/end?shop=...
+ *
+ * Terminal, not resumable. Deactivates the Shopify discount for everyone,
+ * including members who claimed but haven't redeemed — that's the whole
+ * point (distinct from /pause, which protects them). Order matters: the
+ * claimed-member list is loaded before anything is mutated, the Shopify
+ * call happens before the DB write (same never-diverge pattern as the old
+ * toggle-active), and the notification emails are best-effort *after* the
+ * DB write succeeds — an email failure shouldn't undo an already-completed
+ * end action.
+ * ===========================================================
+ */
+router.post("/:id/end", verifyShopifyAuth, async (req, res) => {
+  try {
+    const shop = req.shopifyShop;
+    const campaignId = Number(req.params.id);
+    if (isNaN(campaignId)) {
+      return res.status(400).json({ success: false, error: "Invalid campaign id" });
+    }
+
+    const campaign = await findOwnedCampaign(campaignId, shop.id);
+    if (!campaign) {
+      return res.status(404).json({ success: false, error: "Campaign not found" });
+    }
+    if (campaign.status === "ended") {
+      return res.status(400).json({ success: false, error: "Campaign has already ended" });
+    }
+
+    const claimedMembers = await prisma.redemption.findMany({
+      where: { campaignId, status: "confirmed", shopifyOrderId: null },
+      include: { member: true },
+    });
+
+    if (campaign.shopifyDiscountId) {
+      try {
+        await setCampaignDiscountActive(shop, campaign.shopifyDiscountId, false);
+      } catch (err) {
+        console.error(`❌ Failed to deactivate Shopify discount for campaign ${campaign.id}:`, err);
+        return res.status(500).json({
+          success: false,
+          error: "Failed to deactivate the Shopify discount. Campaign was not ended.",
+          details: err.message,
+        });
+      }
+    } else {
+      console.warn(`⚠️ Campaign ${campaign.id} (${campaign.slug}) has no shopifyDiscountId — skipping Shopify deactivate call.`);
+    }
+
+    const updated = await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { status: "ended", endedAt: new Date() },
+      include: includeForShapedCampaign(),
+    });
+
+    // Best-effort — the campaign has already ended on both the DB and
+    // Shopify side by this point, so a notification failure here shouldn't
+    // (and per the never-throw pattern in makeWebhookService.js, can't)
+    // undo or block that.
+    for (const redemption of claimedMembers) {
+      await triggerCampaignEnded({
+        memberEmail: redemption.member.email,
+        campaignName: campaign.name,
+        brandName: shop.shopDomain,
+      });
+    }
+
+    res.json({ success: true, campaign: { ...shapeCampaign(updated), audienceSize: await countMatchingMembers(updated.filters) } });
+  } catch (err) {
+    console.error("❌ Error ending campaign:", err);
+    res.status(500).json({ success: false, error: "Failed to end campaign" });
+  }
+});
+
+/**
+ * ===========================================================
+ * POST /api/campaigns/preview-audience-size?shop=...
+ *
+ * Body: { filters: [{ filterType, value }, ...] }. Returns a live count of
+ * verified members matching the in-progress filter selection, using the
+ * same AND-across-types/OR-within-type semantics as saved campaigns. An
+ * empty filters array (nothing selected in either group) matches
+ * everyone, same as an unfiltered campaign.
+ * ===========================================================
+ */
+router.post("/preview-audience-size", verifyShopifyAuth, async (req, res) => {
+  try {
+    const filters = Array.isArray(req.body?.filters)
+      ? req.body.filters.filter((f) => f && typeof f.filterType === "string" && typeof f.value === "string")
+      : [];
+
+    const count = await countMatchingMembers(filters);
+    res.json({ success: true, count });
+  } catch (err) {
+    console.error("❌ Error previewing audience size:", err);
+    res.status(500).json({ success: false, error: "Failed to preview audience size" });
   }
 });
 

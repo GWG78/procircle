@@ -36,11 +36,13 @@ function memberMatchesFilters(member, filters) {
  * already confirmed-redeemed are excluded entirely.
  */
 async function getOffersForMember(member) {
+  if (!member.verified) return [];
+
   const now = new Date();
 
   const campaigns = await prisma.campaign.findMany({
     where: {
-      active: true,
+      status: "active",
       OR: [{ startsAt: null }, { startsAt: { lte: now } }],
     },
     include: {
@@ -87,6 +89,10 @@ async function getOffersForMember(member) {
  * request, guarding against races between the offers list and the request.
  */
 async function checkEligibility(member, campaignId) {
+  if (!member.verified) {
+    return { eligible: false, reason: "not_verified" };
+  }
+
   const now = new Date();
 
   const campaign = await prisma.campaign.findUnique({
@@ -94,8 +100,15 @@ async function checkEligibility(member, campaignId) {
     include: { filters: true },
   });
 
-  if (!campaign || !campaign.active) {
+  if (!campaign || campaign.status !== "active") {
     return { eligible: false, reason: "not_found" };
+  }
+
+  // Mirrors getOffersForMember's startsAt filter — without this, a
+  // "draft" campaign (active status, future startsAt, not yet shown in the
+  // offers list) could still be claimed early via a direct API call.
+  if (campaign.startsAt && campaign.startsAt > now) {
+    return { eligible: false, reason: "not_started" };
   }
 
   if (!memberMatchesFilters(member, campaign.filters)) {
@@ -133,4 +146,34 @@ async function checkEligibility(member, campaignId) {
   return { eligible: true, reason: "ok" };
 }
 
-export { getOffersForMember, checkEligibility };
+// Filter types that correspond to an actual Member column — "collection"
+// filters restrict which products a discount applies to (a Shopify-side
+// concern), not which members are eligible, so they're excluded here.
+const MEMBER_ATTRIBUTE_FILTER_TYPES = new Set(["role", "country", "resort"]);
+
+/**
+ * Counts verified members matching a set of {filterType, value} pairs,
+ * using the same AND-across-types/OR-within-type semantics as
+ * memberMatchesFilters — but as a single DB-level count() rather than a
+ * per-member JS scan, since this is called on every audience-filter
+ * checkbox change (dashboard audience-size column, create-form live
+ * counter) and needs to stay fast regardless of Member table size.
+ */
+async function countMatchingMembers(filters) {
+  const groups = new Map();
+  for (const filter of filters || []) {
+    if (!MEMBER_ATTRIBUTE_FILTER_TYPES.has(filter.filterType)) continue;
+    if (!groups.has(filter.filterType)) groups.set(filter.filterType, []);
+    groups.get(filter.filterType).push(filter.value);
+  }
+
+  const and = [...groups.entries()]
+    .filter(([, values]) => values.length > 0)
+    .map(([filterType, values]) => ({ [filterType]: { in: values } }));
+
+  return prisma.member.count({
+    where: { verified: true, ...(and.length ? { AND: and } : {}) },
+  });
+}
+
+export { getOffersForMember, checkEligibility, countMatchingMembers };

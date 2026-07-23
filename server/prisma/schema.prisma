@@ -39,7 +39,13 @@ model Campaign {
 
   targetAudience        String       @default("all")
 
-  active                Boolean      @default(true)
+  // "active" | "paused" | "ended". "Draft" and "Cap Reached" are derived
+  // display states, not stored here — Draft = status "active" with a future
+  // startsAt, Cap Reached = status "active" with confirmed redemptions at
+  // maxRedemptions. See routes/campaigns.mjs deriveStatus().
+  status                String       @default("active")
+  pausedAt              DateTime?
+  endedAt               DateTime?
   startsAt              DateTime?
   validForDays          Int          @default(30)
 

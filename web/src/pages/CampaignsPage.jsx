@@ -19,6 +19,8 @@ import {
   Toast,
   Divider,
   Tooltip,
+  IndexTable,
+  Spinner,
 } from '@shopify/polaris'
 import { ChevronDownIcon, ChevronUpIcon, ClipboardIcon } from '@shopify/polaris-icons'
 import { useAppBridge } from '@shopify/app-bridge-react'
@@ -57,254 +59,42 @@ const MAX_PER_MEMBER_OPTIONS = [
   { label: 'Unlimited', value: 'unlimited' },
 ]
 
+const STATUS_LABELS = {
+  draft: 'Draft',
+  active: 'Active',
+  cap_reached: 'Cap Reached',
+  paused: 'Paused',
+  ended: 'Ended',
+}
+
+const STATUS_TONES = {
+  draft: 'info',
+  active: 'success',
+  cap_reached: 'attention',
+  paused: 'warning',
+  ended: undefined,
+}
+
 function labelFor(options, value) {
   return options.find((o) => o.value === value)?.label || value
 }
 
-function formatDate(iso) {
-  if (!iso) return null
-  return new Date(iso).toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
+function audienceSummary(campaign) {
+  const roleValues = campaign.filters.filter((f) => f.filterType === 'role').map((f) => labelFor(ROLE_OPTIONS, f.value))
+  const countryValues = campaign.filters.filter((f) => f.filterType === 'country').map((f) => f.value)
+
+  const roleText = roleValues.length ? roleValues.join(', ') : 'All roles'
+  const countryText = countryValues.length ? countryValues.join(', ') : 'All countries'
+
+  return `${roleText} · ${countryText}`
 }
 
-function statusTone(status) {
-  if (status === 'active') return 'success'
-  return undefined // inactive -> default/neutral badge
-}
-
-function discountSummary(campaign) {
-  return campaign.discountType === 'fixed'
-    ? `$${campaign.discountValue} off all products`
-    : `${campaign.discountValue}% off all products`
-}
-
-function campaignStartSummary(campaign) {
-  const start = formatDate(campaign.startsAt)
-  return start ? `Campaign start: ${start}` : 'Started immediately'
-}
-
-function redemptionLimitSummary(campaign) {
-  const total = campaign.maxRedemptions != null ? `${campaign.maxRedemptions} total` : 'Unlimited total'
-  const perMember =
-    campaign.maxRedemptionsPerUser != null ? `${campaign.maxRedemptionsPerUser} per member` : 'unlimited per member'
-  return `${total} / ${perMember}`
+function formatRevenue(amount) {
+  return `$${Number(amount || 0).toFixed(2)}`
 }
 
 /* ============================================================
-   Active/inactive toggle
-   ============================================================ */
-function ActiveToggle({ active, loading, onClick }) {
-  return (
-    <div
-      style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: loading ? 'not-allowed' : 'pointer' }}
-      onClick={loading ? undefined : onClick}
-      role="switch"
-      aria-checked={active}
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          if (!loading) onClick()
-        }
-      }}
-    >
-      <div
-        style={{
-          width: '44px',
-          height: '24px',
-          borderRadius: '12px',
-          backgroundColor: active ? 'var(--p-color-bg-fill-success)' : 'var(--p-color-bg-fill-critical)',
-          position: 'relative',
-          transition: 'background-color 0.2s ease',
-          opacity: loading ? 0.6 : 1,
-        }}
-      >
-        <div
-          style={{
-            width: '18px',
-            height: '18px',
-            borderRadius: '50%',
-            backgroundColor: 'white',
-            position: 'absolute',
-            top: '3px',
-            left: active ? '23px' : '3px',
-            transition: 'left 0.2s ease',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-          }}
-        />
-      </div>
-      <span
-        style={{
-          fontSize: '13px',
-          fontWeight: 500,
-          color: active ? 'var(--p-color-text-success)' : 'var(--p-color-text-critical)',
-        }}
-      >
-        {loading ? '...' : active ? 'Active' : 'Inactive'}
-      </span>
-    </div>
-  )
-}
-
-/* ============================================================
-   Campaign accordion
-   ============================================================ */
-function CampaignAccordion({ campaign, collections, onCopyLink, onToggled, onToastError }) {
-  const shopify = useAppBridge()
-  const [open, setOpen] = useState(false)
-  const [toggling, setToggling] = useState(false)
-  const [conflictMessage, setConflictMessage] = useState(null)
-
-  const handleToggleActive = useCallback(async () => {
-    setToggling(true)
-    setConflictMessage(null)
-    try {
-      const token = await shopify.idToken()
-      const res = await fetch(`/api/campaigns/${campaign.id}/toggle-active?shop=${shop}`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const data = await res.json()
-
-      if (res.status === 409) {
-        setConflictMessage(data.message)
-        return
-      }
-
-      if (!data.success) {
-        onToastError('Failed to update campaign status')
-        return
-      }
-
-      onToggled(data.campaign)
-    } catch {
-      onToastError('Failed to update campaign status')
-    } finally {
-      setToggling(false)
-    }
-  }, [campaign.id, onToggled, onToastError, shopify])
-
-  const roleFilters = campaign.filters.filter((f) => f.filterType === 'role')
-  const countryFilters = campaign.filters.filter((f) => f.filterType === 'country')
-  const collectionFilters = campaign.filters.filter((f) => f.filterType === 'collection')
-
-  const collectionTitles = collectionFilters.map((f) => {
-    const match = collections.find((c) => c.id === f.value)
-    return match ? match.title : f.value
-  })
-
-  return (
-    <Card padding="0">
-      <div style={{ padding: '1rem' }}>
-        <InlineStack align="space-between" blockAlign="center">
-          <InlineStack gap="300" blockAlign="center">
-            <Text variant="headingSm" as="h3">
-              {campaign.name}
-            </Text>
-            <Badge tone={statusTone(campaign.status)}>{campaign.status}</Badge>
-            <Text as="span" tone="subdued">
-              {campaign.confirmedRedemptions} / {campaign.maxRedemptions ?? '∞'} redemptions
-            </Text>
-          </InlineStack>
-          <Button
-            variant="tertiary"
-            icon={open ? ChevronUpIcon : ChevronDownIcon}
-            accessibilityLabel={open ? 'Collapse' : 'Expand'}
-            onClick={() => setOpen((o) => !o)}
-          />
-        </InlineStack>
-      </div>
-
-      <Collapsible open={open} id={`campaign-${campaign.id}`}>
-        <Divider />
-        <div style={{ padding: '1rem' }}>
-          <BlockStack gap="300">
-            {conflictMessage && (
-              <Banner tone="critical" onDismiss={() => setConflictMessage(null)}>
-                {conflictMessage}
-              </Banner>
-            )}
-
-            <Text as="p">
-              <Text as="span" fontWeight="semibold">
-                Discount:{' '}
-              </Text>
-              {discountSummary(campaign)}
-            </Text>
-
-            <Text as="p">
-              <Text as="span" fontWeight="semibold">
-                Validity window:{' '}
-              </Text>
-              {campaign.validForDays} days per member
-            </Text>
-
-            <Text as="p">{campaignStartSummary(campaign)}</Text>
-
-            {roleFilters.length > 0 && (
-              <Text as="p">
-                <Text as="span" fontWeight="semibold">
-                  Roles:{' '}
-                </Text>
-                {roleFilters.map((f) => labelFor(ROLE_OPTIONS, f.value)).join(', ')}
-              </Text>
-            )}
-
-            {countryFilters.length > 0 && (
-              <Text as="p">
-                <Text as="span" fontWeight="semibold">
-                  Countries:{' '}
-                </Text>
-                {countryFilters.map((f) => labelFor(COUNTRY_OPTIONS, f.value)).join(', ')}
-              </Text>
-            )}
-
-            <Text as="p">
-              <Text as="span" fontWeight="semibold">
-                Collection restriction:{' '}
-              </Text>
-              {collectionTitles.length > 0 ? `Restricted to: ${collectionTitles.join(', ')}` : 'All products'}
-            </Text>
-
-            <Text as="p">
-              <Text as="span" fontWeight="semibold">
-                Redemption limit:{' '}
-              </Text>
-              {redemptionLimitSummary(campaign)}
-            </Text>
-
-            <Text as="p">{campaign.confirmedRedemptions} confirmed redemptions</Text>
-
-            {campaign.discountLink && (
-              <TextField
-                label="Discount link"
-                value={campaign.discountLink}
-                readOnly
-                autoComplete="off"
-                connectedRight={
-                  <Button icon={ClipboardIcon} onClick={() => onCopyLink(campaign.discountLink)}>
-                    Copy
-                  </Button>
-                }
-              />
-            )}
-
-            <div>
-              <ActiveToggle active={campaign.active} loading={toggling} onClick={handleToggleActive} />
-            </div>
-          </BlockStack>
-        </div>
-      </Collapsible>
-    </Card>
-  )
-}
-
-/* ============================================================
-   Create campaign modal
+   Create / Duplicate campaign modal
    ============================================================ */
 const EMPTY_FORM = {
   name: '',
@@ -322,18 +112,43 @@ const EMPTY_FORM = {
 
 const EMPTY_ACTIVE_FILTERS = { role: [], country: [], resort: [] }
 
-function CreateCampaignModal({ open, onClose, onCreated, collections }) {
+/**
+ * Builds a form seed from an existing campaign, for the Duplicate action.
+ * Name and start date are deliberately left blank — the brand reviews and
+ * relaunches, this isn't a live copy of the source campaign.
+ */
+function seedFormFromCampaign(campaign) {
+  const collectionIds = campaign.filters.filter((f) => f.filterType === 'collection').map((f) => f.value)
+  return {
+    ...EMPTY_FORM,
+    discountType: campaign.discountType,
+    discountValue: String(campaign.discountValue ?? ''),
+    validForDays: String(campaign.validForDays ?? 30),
+    maxRedemptions: campaign.maxRedemptions != null ? String(campaign.maxRedemptions) : '',
+    maxRedemptionsPerUser: campaign.maxRedemptionsPerUser != null ? String(campaign.maxRedemptionsPerUser) : 'unlimited',
+    roles: campaign.filters.filter((f) => f.filterType === 'role').map((f) => f.value),
+    countries: campaign.filters.filter((f) => f.filterType === 'country').map((f) => f.value),
+    restrictCollections: collectionIds.length > 0,
+    collectionIds,
+  }
+}
+
+function CreateCampaignModal({ open, onClose, onCreated, collections, initialForm }) {
   const shopify = useAppBridge()
   const [form, setForm] = useState(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [activeFilters, setActiveFilters] = useState(EMPTY_ACTIVE_FILTERS)
+  const [refineOpen, setRefineOpen] = useState(false)
+  const [audienceCount, setAudienceCount] = useState(null)
+  const [audienceLoading, setAudienceLoading] = useState(false)
 
   useEffect(() => {
     if (open) {
-      setForm(EMPTY_FORM)
+      setForm(initialForm || EMPTY_FORM)
       setError('')
       setActiveFilters(EMPTY_ACTIVE_FILTERS)
+      setRefineOpen(false)
 
       fetch(`/api/campaigns/active-filters?shop=${shop}`, { credentials: 'include' })
         .then((res) => res.json())
@@ -346,13 +161,49 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
           // Non-fatal — the form just won't grey out any options.
         })
     }
+    // initialForm is only meant to seed the form on open, not re-trigger
+    // this effect on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  // Live audience-size counter — fires once on open (showing the full
+  // verified-member count when nothing is selected) and again on every
+  // role/country change, debounced so rapid checkbox clicks don't spam
+  // the endpoint.
+  useEffect(() => {
+    if (!open) return
+
+    setAudienceLoading(true)
+    const timer = setTimeout(async () => {
+      try {
+        const filters = [
+          ...form.roles.map((value) => ({ filterType: 'role', value })),
+          ...form.countries.map((value) => ({ filterType: 'country', value })),
+        ]
+        const token = await shopify.idToken()
+        const res = await fetch(`/api/campaigns/preview-audience-size?shop=${shop}`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ filters }),
+        })
+        const data = await res.json()
+        if (data.success) setAudienceCount(data.count)
+      } catch {
+        // Non-fatal — the counter just won't update this round.
+      } finally {
+        setAudienceLoading(false)
+      }
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [open, form.roles, form.countries, shopify])
 
   const setField = useCallback((key) => (value) => setForm((f) => ({ ...f, [key]: value })), [])
 
   // Loose conflict rule for the create form (approximate — uses the flat
   // active-filter sets, not per-campaign overlap; see server-side
-  // checkAudienceConflict for the authoritative check run on reactivation).
+  // checkAudienceConflict for the authoritative check run on resume).
   // A country is greyed out once at least one selected role also appears
   // somewhere in the active role set; a role is greyed out once at least
   // one selected country also appears somewhere in the active country set.
@@ -511,7 +362,7 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
             <TextField
               label="Campaign start date"
               type="date"
-              helpText="Leave blank to start immediately"
+              helpText="Leave blank to start immediately. A future date shows as Draft until it arrives."
               value={form.startDate}
               onChange={setField('startDate')}
               autoComplete="off"
@@ -545,38 +396,55 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
             </FormLayout.Group>
 
             <Divider />
-            <Text variant="headingSm" as="h3">
-              Audience filters
-            </Text>
 
-            <ChoiceList
-              title="Roles"
-              allowMultiple
-              choices={roleChoices}
-              selected={form.roles}
-              onChange={setField('roles')}
-            />
-            <Text as="p" tone="subdued" variant="bodySm">
-              Members must match at least one selection in each group you filter by. Leave a group unchecked to
-              apply no filter for that category.
-            </Text>
+            <InlineStack gap="200" blockAlign="center">
+              <Text as="span" tone="subdued" variant="bodySm">
+                {audienceLoading && audienceCount === null
+                  ? 'Counting matching members…'
+                  : audienceCount !== null
+                  ? `~${audienceCount} member${audienceCount === 1 ? '' : 's'} match`
+                  : ''}
+              </Text>
+              {audienceLoading && <Spinner size="small" />}
+            </InlineStack>
 
-            <ChoiceList
-              title="Countries"
-              allowMultiple
-              choices={countryChoices}
-              selected={form.countries}
-              onChange={setField('countries')}
-            />
-            <Text as="p" tone="subdued" variant="bodySm">
-              Members must match at least one selection in each group you filter by. Leave a group unchecked to
-              apply no filter for that category.
-            </Text>
+            <div>
+              <Button
+                variant="tertiary"
+                icon={refineOpen ? ChevronUpIcon : ChevronDownIcon}
+                onClick={() => setRefineOpen((o) => !o)}
+              >
+                Refine audience (optional)
+              </Button>
+              {!refineOpen && (
+                <Text as="p" tone="subdued" variant="bodySm">
+                  Leave this closed to reach all verified members.
+                </Text>
+              )}
+            </div>
 
-            <ChoiceList title="Resorts" allowMultiple choices={[]} selected={[]} onChange={() => {}} />
-            <Text as="p" tone="subdued" variant="bodySm">
-              Resort filtering coming soon.
-            </Text>
+            <Collapsible open={refineOpen} id="refine-audience">
+              <BlockStack gap="300">
+                <ChoiceList
+                  title="Roles"
+                  allowMultiple
+                  choices={roleChoices}
+                  selected={form.roles}
+                  onChange={setField('roles')}
+                />
+                <ChoiceList
+                  title="Countries"
+                  allowMultiple
+                  choices={countryChoices}
+                  selected={form.countries}
+                  onChange={setField('countries')}
+                />
+                <Text as="p" tone="subdued" variant="bodySm">
+                  Members must match at least one selection in each group you filter by. Leave a group unchecked to
+                  apply no filter for that category.
+                </Text>
+              </BlockStack>
+            </Collapsible>
 
             <Divider />
             <Text variant="headingSm" as="h3">
@@ -614,6 +482,177 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
 }
 
 /* ============================================================
+   End Campaign confirmation modal
+   ============================================================ */
+function EndCampaignModal({ campaign, onClose, onEnded, onToastError }) {
+  const shopify = useAppBridge()
+  const [claimedCount, setClaimedCount] = useState(null)
+  const [loadingCount, setLoadingCount] = useState(true)
+  const [ending, setEnding] = useState(false)
+
+  useEffect(() => {
+    if (!campaign) return
+    setLoadingCount(true)
+    setClaimedCount(null)
+    ;(async () => {
+      try {
+        const token = await shopify.idToken()
+        const res = await fetch(`/api/campaigns/${campaign.id}/claimed-count?shop=${shop}`, {
+          credentials: 'include',
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const data = await res.json()
+        if (data.success) setClaimedCount(data.count)
+      } catch {
+        // Leave claimedCount null — the modal shows generic copy instead.
+      } finally {
+        setLoadingCount(false)
+      }
+    })()
+  }, [campaign, shopify])
+
+  const handleEnd = useCallback(async () => {
+    setEnding(true)
+    try {
+      const token = await shopify.idToken()
+      const res = await fetch(`/api/campaigns/${campaign.id}/end?shop=${shop}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json()
+      if (!data.success) {
+        onToastError(data.error || 'Failed to end campaign')
+        return
+      }
+      onEnded(data.campaign)
+    } catch {
+      onToastError('Failed to end campaign')
+    } finally {
+      setEnding(false)
+    }
+  }, [campaign, onEnded, onToastError, shopify])
+
+  return (
+    <Modal
+      open={!!campaign}
+      onClose={onClose}
+      title={`End "${campaign?.name}"?`}
+      primaryAction={{
+        content: 'End campaign',
+        destructive: true,
+        onAction: handleEnd,
+        loading: ending,
+        disabled: loadingCount,
+      }}
+      secondaryActions={[{ content: 'Cancel', onAction: onClose, disabled: ending }]}
+    >
+      <Modal.Section>
+        <BlockStack gap="300">
+          {loadingCount ? (
+            <InlineStack gap="200" blockAlign="center">
+              <Spinner size="small" />
+              <Text as="span">Checking claimed codes…</Text>
+            </InlineStack>
+          ) : (
+            <Banner tone="warning">
+              {claimedCount != null
+                ? `${claimedCount} member${claimedCount === 1 ? '' : 's'} have this code but haven't used it yet. Ending the campaign now will invalidate it for them.`
+                : "Ending the campaign now will invalidate its discount code for anyone who claimed it but hasn't used it yet."}
+            </Banner>
+          )}
+          <Text as="p" tone="subdued">
+            This can't be undone — a new campaign will be needed to relaunch.
+          </Text>
+        </BlockStack>
+      </Modal.Section>
+    </Modal>
+  )
+}
+
+/* ============================================================
+   Campaigns dashboard table
+   ============================================================ */
+function CampaignsTable({ campaigns, onPauseResume, onEndRequested, onDuplicate, actionLoadingId }) {
+  const rowMarkup = campaigns.map((campaign, index) => {
+    const canPause = campaign.status === 'active' || campaign.status === 'cap_reached' || campaign.status === 'draft'
+    const canResume = campaign.status === 'paused'
+    const canEnd = campaign.status !== 'ended'
+    const loading = actionLoadingId === campaign.id
+
+    return (
+      <IndexTable.Row id={String(campaign.id)} key={campaign.id} position={index}>
+        <IndexTable.Cell>
+          <BlockStack gap="050">
+            <Text as="span" fontWeight="semibold">
+              {campaign.name}
+            </Text>
+            <Text as="span" tone="subdued" variant="bodySm">
+              {audienceSummary(campaign)}
+            </Text>
+          </BlockStack>
+        </IndexTable.Cell>
+        <IndexTable.Cell>
+          <Badge tone={STATUS_TONES[campaign.status]}>{STATUS_LABELS[campaign.status] || campaign.status}</Badge>
+        </IndexTable.Cell>
+        <IndexTable.Cell>{campaign.audienceSize}</IndexTable.Cell>
+        <IndexTable.Cell>{campaign.salesCount}</IndexTable.Cell>
+        <IndexTable.Cell>{formatRevenue(campaign.salesRevenue)}</IndexTable.Cell>
+        <IndexTable.Cell>
+          {campaign.confirmedRedemptions} / {campaign.maxRedemptions ?? '∞'}
+        </IndexTable.Cell>
+        <IndexTable.Cell>
+          <InlineStack gap="200">
+            {canPause && (
+              <Button size="slim" loading={loading} onClick={() => onPauseResume(campaign, 'pause')}>
+                Pause
+              </Button>
+            )}
+            {canResume && (
+              <Button size="slim" loading={loading} onClick={() => onPauseResume(campaign, 'resume')}>
+                Resume
+              </Button>
+            )}
+            {canEnd && (
+              <Button size="slim" tone="critical" onClick={() => onEndRequested(campaign)}>
+                End
+              </Button>
+            )}
+            <Button size="slim" onClick={() => onDuplicate(campaign)}>
+              Duplicate
+            </Button>
+            {campaign.discountLink && (
+              <Button size="slim" icon={ClipboardIcon} onClick={() => onDuplicate(campaign, true)} accessibilityLabel="Copy link" />
+            )}
+          </InlineStack>
+        </IndexTable.Cell>
+      </IndexTable.Row>
+    )
+  })
+
+  return (
+    <Card padding="0">
+      <IndexTable
+        resourceName={{ singular: 'campaign', plural: 'campaigns' }}
+        itemCount={campaigns.length}
+        selectable={false}
+        headings={[
+          { title: 'Campaign' },
+          { title: 'Status' },
+          { title: 'Audience size' },
+          { title: 'Sales' },
+          { title: 'Revenue' },
+          { title: 'Redemption cap' },
+          { title: 'Actions' },
+        ]}
+      >
+        {rowMarkup}
+      </IndexTable>
+    </Card>
+  )
+}
+
+/* ============================================================
    Page
    ============================================================ */
 export default function CampaignsPage() {
@@ -621,7 +660,11 @@ export default function CampaignsPage() {
   const [collections, setCollections] = useState([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
+  const [duplicateSeed, setDuplicateSeed] = useState(null)
+  const [endingCampaign, setEndingCampaign] = useState(null)
+  const [actionLoadingId, setActionLoadingId] = useState(null)
   const [toast, setToast] = useState(null)
+  const shopify = useAppBridge()
 
   const loadCampaigns = useCallback(async () => {
     try {
@@ -648,22 +691,67 @@ export default function CampaignsPage() {
     Promise.all([loadCampaigns(), loadCollections()]).finally(() => setLoading(false))
   }, [loadCampaigns, loadCollections])
 
-  const handleCreated = useCallback(
-    (campaign) => {
-      setModalOpen(false)
-      loadCampaigns()
-      setToast({ message: 'Campaign created successfully', error: false })
-    },
-    [loadCampaigns]
-  )
+  const handleCreated = useCallback(() => {
+    setModalOpen(false)
+    setDuplicateSeed(null)
+    loadCampaigns()
+    setToast({ message: 'Campaign created successfully', error: false })
+  }, [loadCampaigns])
 
-  const handleCopyLink = useCallback((link) => {
-    navigator.clipboard?.writeText(link)
-    setToast({ message: 'Discount link copied', error: false })
+  const handleOpenCreate = useCallback(() => {
+    setDuplicateSeed(null)
+    setModalOpen(true)
   }, [])
 
-  const handleToggled = useCallback((updatedCampaign) => {
+  const handleDuplicate = useCallback(
+    (campaign, copyLink) => {
+      if (copyLink) {
+        navigator.clipboard?.writeText(campaign.discountLink)
+        setToast({ message: 'Discount link copied', error: false })
+        return
+      }
+      setDuplicateSeed(seedFormFromCampaign(campaign))
+      setModalOpen(true)
+    },
+    []
+  )
+
+  const handlePauseResume = useCallback(
+    async (campaign, action) => {
+      setActionLoadingId(campaign.id)
+      try {
+        const token = await shopify.idToken()
+        const res = await fetch(`/api/campaigns/${campaign.id}/${action}?shop=${shop}`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const data = await res.json()
+
+        if (res.status === 409) {
+          setToast({ message: data.message || 'Audience conflict — resolve it before resuming', error: true })
+          return
+        }
+        if (!data.success) {
+          setToast({ message: data.error || `Failed to ${action} campaign`, error: true })
+          return
+        }
+
+        setCampaigns((prev) => prev.map((c) => (c.id === data.campaign.id ? data.campaign : c)))
+        setToast({ message: action === 'pause' ? 'Campaign paused' : 'Campaign resumed', error: false })
+      } catch {
+        setToast({ message: `Failed to ${action} campaign`, error: true })
+      } finally {
+        setActionLoadingId(null)
+      }
+    },
+    [shopify]
+  )
+
+  const handleEnded = useCallback((updatedCampaign) => {
     setCampaigns((prev) => prev.map((c) => (c.id === updatedCampaign.id ? updatedCampaign : c)))
+    setEndingCampaign(null)
+    setToast({ message: 'Campaign ended', error: false })
   }, [])
 
   const handleToastError = useCallback((message) => {
@@ -671,15 +759,13 @@ export default function CampaignsPage() {
   }, [])
 
   const hasCampaigns = campaigns.length > 0
-  const activeCount = campaigns.filter((c) => c.status === 'active').length
+  const activeCount = campaigns.filter((c) => c.status === 'active' || c.status === 'cap_reached').length
 
   return (
     <Page
       title="Campaigns"
       primaryAction={
-        hasCampaigns
-          ? undefined
-          : { content: 'Create your first campaign', onAction: () => setModalOpen(true) }
+        hasCampaigns ? { content: 'Add campaign', onAction: handleOpenCreate } : undefined
       }
     >
       {!loading && !hasCampaigns && (
@@ -687,6 +773,7 @@ export default function CampaignsPage() {
           <EmptyState
             heading="No campaigns yet"
             image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+            action={{ content: 'Create your first campaign', onAction: handleOpenCreate }}
           >
             <p>Create your first ProCircle campaign to start offering pro deals to ski industry members.</p>
           </EmptyState>
@@ -698,27 +785,32 @@ export default function CampaignsPage() {
           <Text as="p" tone="subdued">
             {activeCount} active campaign{activeCount === 1 ? '' : 's'}
           </Text>
-          {campaigns.map((campaign) => (
-            <CampaignAccordion
-              key={campaign.id}
-              campaign={campaign}
-              collections={collections}
-              onCopyLink={handleCopyLink}
-              onToggled={handleToggled}
-              onToastError={handleToastError}
-            />
-          ))}
-          <div>
-            <Button onClick={() => setModalOpen(true)}>Add campaign</Button>
-          </div>
+          <CampaignsTable
+            campaigns={campaigns}
+            onPauseResume={handlePauseResume}
+            onEndRequested={setEndingCampaign}
+            onDuplicate={handleDuplicate}
+            actionLoadingId={actionLoadingId}
+          />
         </BlockStack>
       )}
 
       <CreateCampaignModal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={() => {
+          setModalOpen(false)
+          setDuplicateSeed(null)
+        }}
         onCreated={handleCreated}
         collections={collections}
+        initialForm={duplicateSeed}
+      />
+
+      <EndCampaignModal
+        campaign={endingCampaign}
+        onClose={() => setEndingCampaign(null)}
+        onEnded={handleEnded}
+        onToastError={handleToastError}
       />
 
       {toast && <Toast content={toast.message} error={toast.error} onDismiss={() => setToast(null)} />}

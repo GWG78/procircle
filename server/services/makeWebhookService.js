@@ -95,4 +95,20 @@ async function triggerExpiryNotification({ memberEmail, campaignName, brandName 
   });
 }
 
-export { triggerCodeEmail, triggerOrderSync, triggerExpiryReminder, triggerExpiryNotification };
+async function triggerCampaignEnded({ memberEmail, campaignName, brandName }) {
+  const consequence = `member ${memberEmail} will NOT be notified that campaign ${campaignName} has ended (their claimed code is now invalid).`;
+  await postToMakeWebhook({
+    url: process.env.MAKE_CAMPAIGN_ENDED_WEBHOOK_URL,
+    missingUrlContext: `triggerCampaignEnded: MAKE_CAMPAIGN_ENDED_WEBHOOK_URL not set — ${consequence}`,
+    payload: { memberEmail, campaignName, brandName },
+    failureContext: `triggerCampaignEnded: Make.com webhook failed — ${consequence}`,
+  });
+}
+
+export {
+  triggerCodeEmail,
+  triggerOrderSync,
+  triggerExpiryReminder,
+  triggerExpiryNotification,
+  triggerCampaignEnded,
+};
