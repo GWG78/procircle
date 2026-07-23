@@ -1,7 +1,7 @@
 // server/routes/campaigns.mjs
 import express from "express";
 import { PrismaClient } from "@prisma/client";
-import { createCampaignDiscount } from "../services/discountLinkService.js";
+import { createCampaignDiscount, setCampaignDiscountActive } from "../services/discountLinkService.js";
 import { getOrCreateSentinelCustomer } from "../services/shopifyCustomerService.js";
 import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
 
@@ -361,6 +361,12 @@ router.get("/active-filters", async (req, res) => {
  * Flips the campaign's active state. Reactivating (false -> true) runs
  * the audience conflict check first and refuses with 409 if it finds one;
  * deactivating (true -> false) never conflicts, so it's unconditional.
+ *
+ * The Shopify discount is activated/deactivated *before* the DB write, and
+ * the DB write only happens if that Shopify call succeeds — otherwise
+ * Campaign.active would say one thing while the real discount (still
+ * redeemable at checkout) says another. If Shopify fails, nothing changes
+ * on either side and the request 500s.
  * ===========================================================
  */
 router.patch("/:id/toggle-active", verifyShopifyAuth, async (req, res) => {
@@ -390,6 +396,23 @@ router.patch("/:id/toggle-active", verifyShopifyAuth, async (req, res) => {
           conflictingCampaign: conflict,
         });
       }
+    }
+
+    if (campaign.shopifyDiscountId) {
+      try {
+        await setCampaignDiscountActive(shop, campaign.shopifyDiscountId, activating);
+      } catch (err) {
+        console.error(`❌ Failed to ${activating ? "activate" : "deactivate"} Shopify discount for campaign ${campaign.id}:`, err);
+        return res.status(500).json({
+          success: false,
+          error: `Failed to ${activating ? "activate" : "deactivate"} the Shopify discount. Campaign status was not changed.`,
+          details: err.message,
+        });
+      }
+    } else {
+      console.warn(
+        `⚠️ Campaign ${campaign.id} (${campaign.slug}) has no shopifyDiscountId — skipping Shopify activate/deactivate call.`
+      );
     }
 
     const updated = await prisma.campaign.update({

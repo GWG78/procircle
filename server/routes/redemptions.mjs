@@ -1,6 +1,6 @@
 // routes/redemptions.mjs
 import express from "express";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { PrismaClient } from "@prisma/client";
 import { getOffersForMember, checkEligibility } from "../services/eligibilityService.js";
 import { getOrCreateCustomer, addMemberToCampaignDiscount } from "../services/shopifyCustomerService.js";
@@ -32,7 +32,7 @@ const emailLimiter = rateLimit({
   limit: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => String(req.body?.memberEmail || "").trim().toLowerCase() || req.ip,
+  keyGenerator: (req) => String(req.body?.memberEmail || "").trim().toLowerCase() || ipKeyGenerator(req.ip),
   message: { success: false, error: "Too many requests for this email. Please try again later." },
 });
 

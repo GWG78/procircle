@@ -25,6 +25,24 @@ const DISCOUNT_CODE_BASIC_CREATE = `
   }
 `;
 
+const DISCOUNT_CODE_ACTIVATE = `
+  mutation ActivateCampaignDiscount($id: ID!) {
+    discountCodeActivate(id: $id) {
+      codeDiscountNode { id }
+      userErrors { field message }
+    }
+  }
+`;
+
+const DISCOUNT_CODE_DEACTIVATE = `
+  mutation DeactivateCampaignDiscount($id: ID!) {
+    discountCodeDeactivate(id: $id) {
+      codeDiscountNode { id }
+      userErrors { field message }
+    }
+  }
+`;
+
 /**
  * Calls the Shopify Admin GraphQL API for a given shop.
  */
@@ -128,4 +146,29 @@ async function createCampaignDiscount(shop, campaign, sentinelCustomerId) {
   return { discountCode: returnedCode, discountLink, shopifyDiscountId };
 }
 
-export { createCampaignDiscount };
+/**
+ * Activates (discountCodeActivate) or deactivates (discountCodeDeactivate)
+ * the Shopify discount backing a campaign, so toggling a campaign's active
+ * state in the app actually gates checkout — not just our own eligibility
+ * engine. Called from campaigns.mjs's toggle-active handler *before* the DB
+ * write, so a Shopify failure never leaves Campaign.active out of sync with
+ * the real discount's state.
+ *
+ * @param {{ shopDomain: string, accessToken: string }} shop
+ * @param {string} shopifyDiscountId
+ */
+async function setCampaignDiscountActive(shop, shopifyDiscountId, active) {
+  const mutation = active ? DISCOUNT_CODE_ACTIVATE : DISCOUNT_CODE_DEACTIVATE;
+  const mutationName = active ? "discountCodeActivate" : "discountCodeDeactivate";
+
+  const data = await shopifyGraphQL(shop, mutation, { id: shopifyDiscountId });
+  const result = data?.[mutationName];
+
+  if (!result || result.userErrors?.length) {
+    throw new Error(
+      `Shopify ${mutationName} failed: ${JSON.stringify(result?.userErrors || result)}`
+    );
+  }
+}
+
+export { createCampaignDiscount, setCampaignDiscountActive };
