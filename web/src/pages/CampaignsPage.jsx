@@ -19,7 +19,6 @@ import {
   Toast,
   Divider,
   Tooltip,
-  IndexTable,
   Spinner,
 } from '@shopify/polaris'
 import { ChevronDownIcon, ChevronUpIcon, ClipboardIcon } from '@shopify/polaris-icons'
@@ -79,14 +78,20 @@ function labelFor(options, value) {
   return options.find((o) => o.value === value)?.label || value
 }
 
-function audienceSummary(campaign) {
-  const roleValues = campaign.filters.filter((f) => f.filterType === 'role').map((f) => labelFor(ROLE_OPTIONS, f.value))
-  const countryValues = campaign.filters.filter((f) => f.filterType === 'country').map((f) => f.value)
+function rolesSummary(campaign) {
+  const values = campaign.filters.filter((f) => f.filterType === 'role').map((f) => labelFor(ROLE_OPTIONS, f.value))
+  return values.length ? values.join(', ') : 'All roles'
+}
 
-  const roleText = roleValues.length ? roleValues.join(', ') : 'All roles'
-  const countryText = countryValues.length ? countryValues.join(', ') : 'All countries'
+function regionsSummary(campaign) {
+  const values = campaign.filters.filter((f) => f.filterType === 'country').map((f) => f.value)
+  return values.length ? values.join(', ') : 'All regions'
+}
 
-  return `${roleText} · ${countryText}`
+function collectionSummary(campaign, collections) {
+  const values = campaign.filters.filter((f) => f.filterType === 'collection')
+  if (!values.length) return 'All products'
+  return values.map((f) => collections.find((c) => c.id === f.value)?.title || f.value).join(', ')
 }
 
 function formatRevenue(amount) {
@@ -94,7 +99,7 @@ function formatRevenue(amount) {
 }
 
 /* ============================================================
-   Create / Duplicate campaign modal
+   Create campaign modal
    ============================================================ */
 const EMPTY_FORM = {
   name: '',
@@ -112,28 +117,7 @@ const EMPTY_FORM = {
 
 const EMPTY_ACTIVE_FILTERS = { role: [], country: [], resort: [] }
 
-/**
- * Builds a form seed from an existing campaign, for the Duplicate action.
- * Name and start date are deliberately left blank — the brand reviews and
- * relaunches, this isn't a live copy of the source campaign.
- */
-function seedFormFromCampaign(campaign) {
-  const collectionIds = campaign.filters.filter((f) => f.filterType === 'collection').map((f) => f.value)
-  return {
-    ...EMPTY_FORM,
-    discountType: campaign.discountType,
-    discountValue: String(campaign.discountValue ?? ''),
-    validForDays: String(campaign.validForDays ?? 30),
-    maxRedemptions: campaign.maxRedemptions != null ? String(campaign.maxRedemptions) : '',
-    maxRedemptionsPerUser: campaign.maxRedemptionsPerUser != null ? String(campaign.maxRedemptionsPerUser) : 'unlimited',
-    roles: campaign.filters.filter((f) => f.filterType === 'role').map((f) => f.value),
-    countries: campaign.filters.filter((f) => f.filterType === 'country').map((f) => f.value),
-    restrictCollections: collectionIds.length > 0,
-    collectionIds,
-  }
-}
-
-function CreateCampaignModal({ open, onClose, onCreated, collections, initialForm }) {
+function CreateCampaignModal({ open, onClose, onCreated, collections }) {
   const shopify = useAppBridge()
   const [form, setForm] = useState(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
@@ -145,7 +129,7 @@ function CreateCampaignModal({ open, onClose, onCreated, collections, initialFor
 
   useEffect(() => {
     if (open) {
-      setForm(initialForm || EMPTY_FORM)
+      setForm(EMPTY_FORM)
       setError('')
       setActiveFilters(EMPTY_ACTIVE_FILTERS)
       setRefineOpen(false)
@@ -161,9 +145,6 @@ function CreateCampaignModal({ open, onClose, onCreated, collections, initialFor
           // Non-fatal — the form just won't grey out any options.
         })
     }
-    // initialForm is only meant to seed the form on open, not re-trigger
-    // this effect on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   // Live audience-size counter — fires once on open (showing the full
@@ -571,38 +552,84 @@ function EndCampaignModal({ campaign, onClose, onEnded, onToastError }) {
 }
 
 /* ============================================================
-   Campaigns dashboard table
+   Campaigns list — each campaign is a bordered card split into a left
+   info zone and a right stats/actions zone by a vertical divider. Column
+   headers for the right zone's stats render once, above the list.
    ============================================================ */
-function CampaignsTable({ campaigns, onPauseResume, onEndRequested, onDuplicate, actionLoadingId }) {
-  const rowMarkup = campaigns.map((campaign, index) => {
-    const canPause = campaign.status === 'active' || campaign.status === 'cap_reached' || campaign.status === 'draft'
-    const canResume = campaign.status === 'paused'
-    const canEnd = campaign.status !== 'ended'
-    const loading = actionLoadingId === campaign.id
+const LEFT_ZONE_FLEX = '3 3 0'
+const RIGHT_ZONE_FLEX = '2 2 0'
 
-    return (
-      <IndexTable.Row id={String(campaign.id)} key={campaign.id} position={index}>
-        <IndexTable.Cell>
-          <BlockStack gap="050">
-            <Text as="span" fontWeight="semibold">
-              {campaign.name}
-            </Text>
-            <Text as="span" tone="subdued" variant="bodySm">
-              {audienceSummary(campaign)}
-            </Text>
+function CampaignStatsHeader() {
+  return (
+    <div style={{ display: 'flex' }}>
+      <div style={{ flex: LEFT_ZONE_FLEX }} />
+      <div style={{ width: '1px' }} />
+      <div style={{ flex: RIGHT_ZONE_FLEX, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', padding: '0 1rem' }}>
+        <Text as="span" tone="subdued" variant="bodySm" fontWeight="medium">
+          Sales
+        </Text>
+        <Text as="span" tone="subdued" variant="bodySm" fontWeight="medium">
+          Revenue
+        </Text>
+        <Text as="span" tone="subdued" variant="bodySm" fontWeight="medium">
+          Redemption cap
+        </Text>
+      </div>
+    </div>
+  )
+}
+
+function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested, onCopyLink, loading }) {
+  const canPause = campaign.status === 'active' || campaign.status === 'cap_reached' || campaign.status === 'draft'
+  const canResume = campaign.status === 'paused'
+  const canEnd = campaign.status !== 'ended'
+
+  return (
+    <Card padding="0">
+      <div style={{ display: 'flex' }}>
+        <div style={{ flex: LEFT_ZONE_FLEX, padding: '1rem' }}>
+          <BlockStack gap="400">
+            <InlineStack gap="200" blockAlign="center">
+              <Text as="span" fontWeight="semibold" variant="headingSm">
+                {campaign.name}
+              </Text>
+              <Badge tone={STATUS_TONES[campaign.status]}>{STATUS_LABELS[campaign.status] || campaign.status}</Badge>
+            </InlineStack>
+
+            <BlockStack gap="100">
+              <Text as="p" tone="subdued" variant="bodySm">
+                Roles: {rolesSummary(campaign)}
+              </Text>
+              <Text as="p" tone="subdued" variant="bodySm">
+                Regions: {regionsSummary(campaign)}
+              </Text>
+              <Text as="p" tone="subdued" variant="bodySm">
+                Collection: {collectionSummary(campaign, collections)}
+              </Text>
+            </BlockStack>
+
+            {campaign.discountLink && (
+              <div>
+                <Button icon={ClipboardIcon} onClick={() => onCopyLink(campaign)}>
+                  Copy discount link
+                </Button>
+              </div>
+            )}
           </BlockStack>
-        </IndexTable.Cell>
-        <IndexTable.Cell>
-          <Badge tone={STATUS_TONES[campaign.status]}>{STATUS_LABELS[campaign.status] || campaign.status}</Badge>
-        </IndexTable.Cell>
-        <IndexTable.Cell>{campaign.audienceSize}</IndexTable.Cell>
-        <IndexTable.Cell>{campaign.salesCount}</IndexTable.Cell>
-        <IndexTable.Cell>{formatRevenue(campaign.salesRevenue)}</IndexTable.Cell>
-        <IndexTable.Cell>
-          {campaign.confirmedRedemptions} / {campaign.maxRedemptions ?? '∞'}
-        </IndexTable.Cell>
-        <IndexTable.Cell>
-          <InlineStack gap="200">
+        </div>
+
+        <div style={{ width: '1px', backgroundColor: 'var(--p-color-border)' }} />
+
+        <div style={{ flex: RIGHT_ZONE_FLEX, padding: '1rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            <Text as="span">{campaign.salesCount}</Text>
+            <Text as="span">{formatRevenue(campaign.salesRevenue)}</Text>
+            <Text as="span">
+              {campaign.confirmedRedemptions} / {campaign.maxRedemptions ?? '∞'}
+            </Text>
+          </div>
+
+          <InlineStack gap="200" align="end">
             {canPause && (
               <Button size="slim" loading={loading} onClick={() => onPauseResume(campaign, 'pause')}>
                 Pause
@@ -618,37 +645,29 @@ function CampaignsTable({ campaigns, onPauseResume, onEndRequested, onDuplicate,
                 End
               </Button>
             )}
-            <Button size="slim" onClick={() => onDuplicate(campaign)}>
-              Duplicate
-            </Button>
-            {campaign.discountLink && (
-              <Button size="slim" icon={ClipboardIcon} onClick={() => onDuplicate(campaign, true)} accessibilityLabel="Copy link" />
-            )}
           </InlineStack>
-        </IndexTable.Cell>
-      </IndexTable.Row>
-    )
-  })
-
-  return (
-    <Card padding="0">
-      <IndexTable
-        resourceName={{ singular: 'campaign', plural: 'campaigns' }}
-        itemCount={campaigns.length}
-        selectable={false}
-        headings={[
-          { title: 'Campaign' },
-          { title: 'Status' },
-          { title: 'Audience size' },
-          { title: 'Sales' },
-          { title: 'Revenue' },
-          { title: 'Redemption cap' },
-          { title: 'Actions' },
-        ]}
-      >
-        {rowMarkup}
-      </IndexTable>
+        </div>
+      </div>
     </Card>
+  )
+}
+
+function CampaignsList({ campaigns, collections, onPauseResume, onEndRequested, onCopyLink, actionLoadingId }) {
+  return (
+    <BlockStack gap="300">
+      <CampaignStatsHeader />
+      {campaigns.map((campaign) => (
+        <CampaignRowCard
+          key={campaign.id}
+          campaign={campaign}
+          collections={collections}
+          onPauseResume={onPauseResume}
+          onEndRequested={onEndRequested}
+          onCopyLink={onCopyLink}
+          loading={actionLoadingId === campaign.id}
+        />
+      ))}
+    </BlockStack>
   )
 }
 
@@ -660,7 +679,6 @@ export default function CampaignsPage() {
   const [collections, setCollections] = useState([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
-  const [duplicateSeed, setDuplicateSeed] = useState(null)
   const [endingCampaign, setEndingCampaign] = useState(null)
   const [actionLoadingId, setActionLoadingId] = useState(null)
   const [toast, setToast] = useState(null)
@@ -693,28 +711,18 @@ export default function CampaignsPage() {
 
   const handleCreated = useCallback(() => {
     setModalOpen(false)
-    setDuplicateSeed(null)
     loadCampaigns()
     setToast({ message: 'Campaign created successfully', error: false })
   }, [loadCampaigns])
 
   const handleOpenCreate = useCallback(() => {
-    setDuplicateSeed(null)
     setModalOpen(true)
   }, [])
 
-  const handleDuplicate = useCallback(
-    (campaign, copyLink) => {
-      if (copyLink) {
-        navigator.clipboard?.writeText(campaign.discountLink)
-        setToast({ message: 'Discount link copied', error: false })
-        return
-      }
-      setDuplicateSeed(seedFormFromCampaign(campaign))
-      setModalOpen(true)
-    },
-    []
-  )
+  const handleCopyLink = useCallback((campaign) => {
+    navigator.clipboard?.writeText(campaign.discountLink)
+    setToast({ message: 'Discount link copied', error: false })
+  }, [])
 
   const handlePauseResume = useCallback(
     async (campaign, action) => {
@@ -785,11 +793,12 @@ export default function CampaignsPage() {
           <Text as="p" tone="subdued">
             {activeCount} active campaign{activeCount === 1 ? '' : 's'}
           </Text>
-          <CampaignsTable
+          <CampaignsList
             campaigns={campaigns}
+            collections={collections}
             onPauseResume={handlePauseResume}
             onEndRequested={setEndingCampaign}
-            onDuplicate={handleDuplicate}
+            onCopyLink={handleCopyLink}
             actionLoadingId={actionLoadingId}
           />
         </BlockStack>
@@ -797,13 +806,9 @@ export default function CampaignsPage() {
 
       <CreateCampaignModal
         open={modalOpen}
-        onClose={() => {
-          setModalOpen(false)
-          setDuplicateSeed(null)
-        }}
+        onClose={() => setModalOpen(false)}
         onCreated={handleCreated}
         collections={collections}
-        initialForm={duplicateSeed}
       />
 
       <EndCampaignModal
