@@ -37,13 +37,11 @@ router.use((req, res, next) => {
  * means an update never resets an already-verified member back to
  * unverified.
  *
- * Email is trimmed but NOT lowercased — every other email lookup in this
- * codebase (checkEligibility, getOffersForMember, the redemption route)
- * does an exact-match lookup with no case normalization either, so
- * lowercasing only here would create a mismatch (a member upserted as
- * "Jane@x.com" here would silently fail to match "Jane@x.com" looked up
- * elsewhere if some future caller normalized differently). Matches
- * existing behavior rather than introducing a new convention.
+ * Email is trimmed AND lowercased before the upsert — every other email
+ * lookup that touches Member.email (this route, the redemption route's two
+ * lookups) now normalizes the same way, so casing differences between
+ * callers (e.g. a web form vs. Apps Script vs. a future WordPress
+ * integration) never cause a mismatch. See routes/redemptions.mjs.
  * ===========================================================
  */
 router.post("/", async (req, res) => {
@@ -57,7 +55,7 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ success: false, error: "role is required" });
     }
 
-    const cleanEmail = email.trim();
+    const cleanEmail = email.trim().toLowerCase();
 
     const data = {
       firstName: firstName != null && String(firstName).trim() ? String(firstName).trim() : null,

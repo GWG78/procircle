@@ -1,6 +1,12 @@
 // services/eligibilityService.js
 //
 // Determines which campaigns a member is eligible to see/redeem.
+//
+// No email lookup lives here — getOffersForMember/checkEligibility both
+// take an already-loaded Member row, not an email string. The email→Member
+// lookup (and its lowercase normalization) happens in the caller
+// (routes/redemptions.mjs); by the time a member reaches these functions
+// it's already the correctly-cased DB row.
 
 import { PrismaClient } from "@prisma/client";
 

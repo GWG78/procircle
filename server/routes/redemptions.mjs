@@ -52,7 +52,8 @@ router.post("/request", ipLimiter, emailLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: "campaignId must be a number" });
     }
 
-    const member = await prisma.member.findUnique({ where: { email: memberEmail } });
+    const cleanEmail = String(memberEmail).trim().toLowerCase();
+    const member = await prisma.member.findUnique({ where: { email: cleanEmail } });
     if (!member) {
       return res.status(404).json({ success: false, error: "Member not found" });
     }
@@ -162,7 +163,8 @@ router.get("/offers", async (req, res) => {
       return res.status(400).json({ success: false, error: "email is required" });
     }
 
-    const member = await prisma.member.findUnique({ where: { email: String(email) } });
+    const cleanEmail = String(email).trim().toLowerCase();
+    const member = await prisma.member.findUnique({ where: { email: cleanEmail } });
     if (!member) {
       return res.status(404).json({ success: false, error: "Member not found" });
     }
