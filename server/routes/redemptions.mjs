@@ -9,16 +9,27 @@ import { triggerCodeEmail } from "../services/makeWebhookService.js";
 const prisma = new PrismaClient();
 const router = express.Router();
 
-// This route has no caller identity to verify — it's hit by an anonymous,
-// external member-facing flow with no session/token of any kind (see
-// verifyShopifyAuth, which only applies to the embedded-admin campaigns
-// routes). Left intentionally public; these two limiters are abuse
-// protection, not authentication. IP limiter catches scripted hammering;
-// email limiter catches someone spamming a single member's inbox with
-// redemption emails or brute-forcing a campaign's redemption cap via one
-// address. Both are in-memory (single web dyno, per render.yaml) — fine
-// for abuse protection, not a substitute for real rate limiting infra if
-// this app is ever scaled beyond one instance.
+// Shared-secret check, same pattern (and same env var) as routes/members.mjs
+// — WordPress is the only legitimate caller of this router now (it proxies
+// both routes server-side, never exposing the secret to the browser). Before
+// this, both routes were fully public with no caller-identity check at all;
+// that meant anyone who knew a real member's email could trigger a real
+// redemption (Shopify audience-add + code email) for them without consent.
+router.use((req, res, next) => {
+  const token = req.headers["x-api-key"];
+  if (!token || token !== process.env.GOOGLE_SHEET_SECRET) {
+    return res.status(401).json({ success: false, error: "Unauthorized" });
+  }
+  next();
+});
+
+// The rate limiters below stay as defense-in-depth even with the secret
+// check above — IP limiter catches scripted hammering; email limiter
+// catches someone spamming a single member's inbox with redemption emails
+// or brute-forcing a campaign's redemption cap via one address. Both are
+// in-memory (single web dyno, per render.yaml) — fine for abuse
+// protection, not a substitute for real rate limiting infra if this app
+// is ever scaled beyond one instance.
 const ipLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
   limit: 20,

@@ -53,6 +53,7 @@ async function getOffersForMember(member) {
     },
     include: {
       filters: true,
+      shop: { select: { shopDomain: true } },
       _count: {
         select: { redemptions: { where: { status: "confirmed" } } },
       },
@@ -84,7 +85,10 @@ async function getOffersForMember(member) {
         ? "fully_claimed"
         : "available";
 
-    eligible.push({ ...campaign, status });
+    // shopDomain flattened onto the campaign (rather than leaving callers
+    // to dig into campaign.shop.shopDomain) — WordPress matches this back
+    // to a Brand post's shop_domain ACF field to render brand info.
+    eligible.push({ ...campaign, status, shopDomain: campaign.shop?.shopDomain ?? null });
   }
 
   return eligible;
