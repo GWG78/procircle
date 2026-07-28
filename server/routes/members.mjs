@@ -7,6 +7,7 @@
 import crypto from "node:crypto";
 import express from "express";
 import { PrismaClient } from "@prisma/client";
+import { createWpUser, getWpPasswordResetLink } from "../services/wordpress.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -52,7 +53,25 @@ router.get("/verify", async (req, res) => {
       },
     });
 
-    return res.redirect(`${VERIFY_REDIRECT_BASE}?status=success`);
+    // From here on, verification itself is already done — both WP steps
+    // fail gracefully to the generic success page rather than surfacing an
+    // error, since a WP-side hiccup shouldn't make a successfully-verified
+    // member think their verification failed.
+    const wpUser = await createWpUser(member.email, member.firstName || "", member.lastName || "");
+
+    if (!wpUser.success) {
+      console.error("❌ WP user creation failed:", wpUser.error);
+      return res.redirect(`${VERIFY_REDIRECT_BASE}?status=success`);
+    }
+
+    const resetResult = await getWpPasswordResetLink(member.email);
+
+    if (!resetResult.success) {
+      console.error("❌ WP reset link failed:", resetResult.error);
+      return res.redirect(`${VERIFY_REDIRECT_BASE}?status=success`);
+    }
+
+    return res.redirect(resetResult.resetLink);
   } catch (err) {
     console.error("❌ Error verifying member:", err);
     return res.redirect(`${VERIFY_REDIRECT_BASE}?status=invalid`);
