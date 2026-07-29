@@ -5,7 +5,7 @@ import { createCampaignDiscount, setCampaignDiscountActive } from "../services/d
 import { getOrCreateSentinelCustomer } from "../services/shopifyCustomerService.js";
 import { countMatchingMembers } from "../services/eligibilityService.js";
 import { endCampaignAndNotify } from "../services/campaignLifecycleService.js";
-import { getWpBrandPostIdBySlug, createWpCampaignPost, updateWpCampaignStatus } from "../services/wordpress.js";
+import { createWpCampaignPost, updateWpCampaignStatus } from "../services/wordpress.js";
 import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
 
 const prisma = new PrismaClient();
@@ -284,49 +284,32 @@ router.post("/create", verifyShopifyAuth, async (req, res) => {
     });
 
     // 4. Best-effort: create the WordPress Campaign post, linked to its
-    // parent Brand post via the ACF relationship field. Never blocks the
-    // response — a WP outage here would otherwise roll back an
-    // already-created, already-billable Shopify discount, which is worse
-    // than a campaign that just needs a manual WP catch-up later.
+    // brand via the campaign_brand taxonomy. Never blocks the response — a
+    // WP outage here would otherwise roll back an already-created,
+    // already-billable Shopify discount, which is worse than a campaign
+    // that just needs a manual WP catch-up later.
     try {
-      const brand = await prisma.brand.findUnique({ where: { shopDomain: shop.shopDomain } });
+      const wpPostId = await createWpCampaignPost({
+        brandName: shop.shopDomain,
+        name: updated.name,
+        slug: updated.slug,
+        discountType: updated.discountType,
+        discountValue: updated.discountValue,
+        discountCode: updated.discountCode,
+        discountLink: updated.discountLink,
+        status: updated.status,
+        startsAt: updated.startsAt,
+        validForDays: updated.validForDays,
+        maxRedemptions: updated.maxRedemptions,
+        maxRedemptionsPerUser: updated.maxRedemptionsPerUser,
+        sourceCampaignId: updated.id,
+      });
 
-      if (!brand) {
-        console.warn(`⚠️ No Brand row for shop ${shop.shopDomain} — campaign ${updated.id} created without a WP post.`);
+      if (wpPostId) {
+        await prisma.campaign.update({ where: { id: updated.id }, data: { wpPostId } });
+        console.log(`✅ WordPress campaign post created (${wpPostId}) for campaign ${updated.id}`);
       } else {
-        let brandWpPostId = brand.wpBrandPostId;
-
-        // Resolved lazily on first use, then cached — avoids a WP lookup on
-        // every single campaign creation for a shop.
-        if (!brandWpPostId) {
-          brandWpPostId = await getWpBrandPostIdBySlug(brand.brandId.toLowerCase());
-          if (brandWpPostId) {
-            await prisma.brand.update({ where: { id: brand.id }, data: { wpBrandPostId: brandWpPostId } });
-          }
-        }
-
-        const wpPostId = await createWpCampaignPost({
-          brandWpPostId,
-          name: updated.name,
-          slug: updated.slug,
-          discountType: updated.discountType,
-          discountValue: updated.discountValue,
-          discountCode: updated.discountCode,
-          discountLink: updated.discountLink,
-          status: updated.status,
-          startsAt: updated.startsAt,
-          validForDays: updated.validForDays,
-          maxRedemptions: updated.maxRedemptions,
-          maxRedemptionsPerUser: updated.maxRedemptionsPerUser,
-          sourceCampaignId: updated.id,
-        });
-
-        if (wpPostId) {
-          await prisma.campaign.update({ where: { id: updated.id }, data: { wpPostId } });
-          console.log(`✅ WordPress campaign post created (${wpPostId}) for campaign ${updated.id}`);
-        } else {
-          console.error(`❌ WordPress campaign post creation failed for campaign ${updated.id} — response will still send`);
-        }
+        console.error(`❌ WordPress campaign post creation failed for campaign ${updated.id} — response will still send`);
       }
     } catch (err) {
       console.error(`❌ WP campaign sync error for campaign ${updated.id}:`, err);

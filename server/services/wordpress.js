@@ -115,43 +115,58 @@ function toAcfDateTime(date) {
 }
 
 /**
- * Looks up a WordPress "brand" CPT post by slug (brandId.toLowerCase(),
- * matching the slug createWordPressBrand_ in Config.js sets at brand
- * signup). Returns the numeric post ID, or null if not found or on any
- * error — never throws, so a lookup failure just means the campaign post
- * below gets created without a brand relationship set, rather than
- * blocking campaign creation entirely.
+ * Resolves a WordPress taxonomy term ID by name, creating it if it doesn't
+ * exist yet — used to attach a campaign to its brand via a taxonomy
+ * (campaign_brand) rather than a Post ID relationship, since Node no longer
+ * tracks a Brand table locally. Returns null on any failure — never
+ * throws, so a lookup/create failure just means the campaign post below
+ * gets created without a brand term set, rather than blocking campaign
+ * creation entirely.
  */
-async function getWpBrandPostIdBySlug(slug) {
+async function getOrCreateWpTermId(taxonomyRestBase, name) {
   try {
-    const response = await fetch(
-      `${WP_BASE_URL}/wp-json/wp/v2/brand?slug=${encodeURIComponent(slug)}`,
+    const searchRes = await fetch(
+      `${WP_BASE_URL}/wp-json/wp/v2/${taxonomyRestBase}?search=${encodeURIComponent(name)}`,
       { headers: { Authorization: wpAuthHeader() } }
     );
-
-    if (!response.ok) return null;
-
-    const posts = await response.json();
-    return Array.isArray(posts) && posts.length ? posts[0].id : null;
+    if (searchRes.ok) {
+      const terms = await searchRes.json();
+      const exact = Array.isArray(terms) && terms.find((t) => t.name.toLowerCase() === name.toLowerCase());
+      if (exact) return exact.id;
+    }
+    const createRes = await fetch(`${WP_BASE_URL}/wp-json/wp/v2/${taxonomyRestBase}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: wpAuthHeader() },
+      body: JSON.stringify({ name }),
+    });
+    if (!createRes.ok) {
+      const errorBody = await createRes.text();
+      console.error(`❌ getOrCreateWpTermId failed to create term "${name}" (HTTP ${createRes.status}): ${errorBody}`);
+      return null;
+    }
+    const created = await createRes.json();
+    return created.id;
   } catch (err) {
-    console.error(`❌ getWpBrandPostIdBySlug error for slug "${slug}":`, err.message);
+    console.error(`❌ getOrCreateWpTermId error for term "${name}":`, err.message);
     return null;
   }
 }
 
 /**
  * Creates a WordPress "campaign" CPT post for a newly-created Campaign,
- * linking it to its parent brand via the ACF Relationship field ("brand",
- * configured to return Post ID). Only sets the fields Node knows at
- * creation time — hero_image/description are left for manual entry later,
- * same enrich-later pattern as brand's logo/brand_summary/discount_rate.
+ * linking it to its brand via the campaign_brand taxonomy (resolved/created
+ * by name through getOrCreateWpTermId above) rather than a Post ID
+ * relationship — Node has no local Brand table to resolve a post ID from.
+ * Only sets the fields Node knows at creation time — hero_image/description
+ * are left for manual entry later, same enrich-later pattern as brand's
+ * logo/brand_summary/discount_rate.
  *
  * Returns the new WP post ID on success, or null on any failure — never
  * throws, so a WP-side outage doesn't roll back an already-created,
  * already-billable Shopify discount (see routes/campaigns.mjs).
  */
 async function createWpCampaignPost({
-  brandWpPostId,
+  brandName,
   name,
   slug,
   discountType,
@@ -179,8 +194,14 @@ async function createWpCampaignPost({
       source_campaign_id: sourceCampaignId,
     };
 
-    if (brandWpPostId) acf.brand = brandWpPostId;
     if (startsAt) acf.starts_at = toAcfDateTime(startsAt);
+
+    const body = { title: name, slug, status: "publish", acf };
+
+    if (brandName) {
+      const termId = await getOrCreateWpTermId("campaign_brand", brandName);
+      if (termId) body.campaign_brand = [termId];
+    }
 
     const response = await fetch(`${WP_BASE_URL}/wp-json/wp/v2/campaign`, {
       method: "POST",
@@ -188,7 +209,7 @@ async function createWpCampaignPost({
         "Content-Type": "application/json",
         Authorization: wpAuthHeader(),
       },
-      body: JSON.stringify({ title: name, slug, status: "publish", acf }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -248,7 +269,6 @@ async function updateWpCampaignStatus(wpPostId, { status, endedAt, endedReason }
 export {
   createWpUser,
   getWpPasswordResetLink,
-  getWpBrandPostIdBySlug,
   createWpCampaignPost,
   updateWpCampaignStatus,
 };

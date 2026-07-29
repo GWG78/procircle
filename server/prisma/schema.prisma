@@ -71,26 +71,6 @@ model Campaign {
   wpPostId              Int?
 }
 
-// Bridges a Google Sheet brand signup (BrandID, generated in
-// onBrandSheetChange) to the Shopify shop that later installs the app.
-// Deliberately its own table rather than a column on Shop: a brand signs up
-// on the sheet — and BrandID exists — before they've necessarily installed
-// the Shopify app, so a Shop row may not exist yet at sync time. Populated
-// by POST /api/brands, called from Apps Script's BrandSync.js.
-model Brand {
-  id             Int      @id @default(autoincrement())
-  brandId        String   @unique // e.g. "BRD-FO-1A2B", from generateBrandId() in UserHandler.js
-  shopDomain     String   @unique // e.g. "forwardoutdoor.myshopify.com"
-
-  // WordPress "brand" CPT post ID, cached on first lookup (GET
-  // /wp-json/wp/v2/brand?slug={brandId.toLowerCase()}) so later campaign
-  // creations don't need to re-resolve it every time.
-  wpBrandPostId  Int?
-
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-}
-
 model Redemption {
   id               Int       @id @default(autoincrement())
   campaignId       Int
