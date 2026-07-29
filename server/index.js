@@ -24,6 +24,7 @@ import redemptionRoutes from "./routes/redemptions.mjs";
 import collectionsRoutes from "./routes/collections.mjs";
 import campaignRoutes from "./routes/campaigns.mjs";
 import memberRoutes from "./routes/members.mjs";
+import brandRoutes from "./routes/brands.mjs";
 
 import path from "path";
 import { fileURLToPath } from "url";
@@ -121,6 +122,7 @@ app.use("/api/redemptions", redemptionRoutes);
 app.use("/api/collections", collectionsRoutes);
 app.use("/api/campaigns", campaignRoutes);
 app.use("/api/members", memberRoutes);
+app.use("/api/brands", brandRoutes);
 
 // =============================================
 // 🌟 Embedded App Root
