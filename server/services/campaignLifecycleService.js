@@ -9,6 +9,7 @@
 
 import { PrismaClient } from "@prisma/client";
 import { triggerCampaignEnded } from "./makeWebhookService.js";
+import { updateWpCampaignStatus } from "./wordpress.js";
 
 const prisma = new PrismaClient();
 
@@ -40,6 +41,15 @@ async function endCampaignAndNotify(campaignId, { endedReason, shopDomain }) {
 
   if (count === 0) {
     return { wonRace: false, campaign };
+  }
+
+  if (campaign.wpPostId) {
+    const synced = await updateWpCampaignStatus(campaign.wpPostId, {
+      status: "ended",
+      endedAt: campaign.endedAt,
+      endedReason: campaign.endedReason,
+    });
+    if (!synced) console.error(`❌ WP status sync failed for campaign ${campaign.id} (end)`);
   }
 
   const claimedMembers = await prisma.redemption.findMany({

@@ -97,4 +97,158 @@ async function getWpPasswordResetLink(email) {
   }
 }
 
-export { createWpUser, getWpPasswordResetLink };
+/**
+ * Formats a JS Date into ACF's fixed internal storage format for a Date
+ * Time Picker field ("Y-m-d H:i:s") — this is NOT configurable via ACF's
+ * Display/Return Format settings, which only affect how the value is shown
+ * when read back, not what the REST API expects on write. Sending a raw
+ * ISO string (e.g. "2026-08-15T00:00:00.000Z") here would not be accepted
+ * the way ACF's own admin UI writes it.
+ */
+function toAcfDateTime(date) {
+  const d = new Date(date);
+  const pad = (n) => String(n).padStart(2, "0");
+  return (
+    `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
+    `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
+  );
+}
+
+/**
+ * Looks up a WordPress "brand" CPT post by slug (brandId.toLowerCase(),
+ * matching the slug createWordPressBrand_ in Config.js sets at brand
+ * signup). Returns the numeric post ID, or null if not found or on any
+ * error — never throws, so a lookup failure just means the campaign post
+ * below gets created without a brand relationship set, rather than
+ * blocking campaign creation entirely.
+ */
+async function getWpBrandPostIdBySlug(slug) {
+  try {
+    const response = await fetch(
+      `${WP_BASE_URL}/wp-json/wp/v2/brand?slug=${encodeURIComponent(slug)}`,
+      { headers: { Authorization: wpAuthHeader() } }
+    );
+
+    if (!response.ok) return null;
+
+    const posts = await response.json();
+    return Array.isArray(posts) && posts.length ? posts[0].id : null;
+  } catch (err) {
+    console.error(`❌ getWpBrandPostIdBySlug error for slug "${slug}":`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Creates a WordPress "campaign" CPT post for a newly-created Campaign,
+ * linking it to its parent brand via the ACF Relationship field ("brand",
+ * configured to return Post ID). Only sets the fields Node knows at
+ * creation time — hero_image/description are left for manual entry later,
+ * same enrich-later pattern as brand's logo/brand_summary/discount_rate.
+ *
+ * Returns the new WP post ID on success, or null on any failure — never
+ * throws, so a WP-side outage doesn't roll back an already-created,
+ * already-billable Shopify discount (see routes/campaigns.mjs).
+ */
+async function createWpCampaignPost({
+  brandWpPostId,
+  name,
+  slug,
+  discountType,
+  discountValue,
+  discountCode,
+  discountLink,
+  status,
+  startsAt,
+  validForDays,
+  maxRedemptions,
+  maxRedemptionsPerUser,
+  sourceCampaignId,
+}) {
+  try {
+    const acf = {
+      name,
+      discount_type: discountType,
+      discount_value: discountValue,
+      discount_code: discountCode || "",
+      discount_link: discountLink || "",
+      status,
+      valid_for_days: validForDays,
+      max_redemptions: maxRedemptions ?? "",
+      max_redemptions_per_user: maxRedemptionsPerUser,
+      source_campaign_id: sourceCampaignId,
+    };
+
+    if (brandWpPostId) acf.brand = brandWpPostId;
+    if (startsAt) acf.starts_at = toAcfDateTime(startsAt);
+
+    const response = await fetch(`${WP_BASE_URL}/wp-json/wp/v2/campaign`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: wpAuthHeader(),
+      },
+      body: JSON.stringify({ title: name, slug, status: "publish", acf }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error(`❌ createWpCampaignPost failed (HTTP ${response.status}): ${errorBody}`);
+      return null;
+    }
+
+    const json = await response.json();
+    return json.id;
+  } catch (err) {
+    console.error("❌ createWpCampaignPost error:", err.message);
+    return null;
+  }
+}
+
+/**
+ * Updates an existing WordPress "campaign" post's status (and, for ended
+ * campaigns, ended_at/ended_reason). Called from routes/campaigns.mjs's
+ * pause/resume handlers and campaignLifecycleService.js's
+ * endCampaignAndNotify — anywhere a Campaign's stored status changes after
+ * creation. No-op if wpPostId is falsy (campaign was never successfully
+ * synced to WP in the first place). Never throws — a WP outage here must
+ * not roll back a DB status change that's already committed.
+ */
+async function updateWpCampaignStatus(wpPostId, { status, endedAt, endedReason } = {}) {
+  if (!wpPostId) return false;
+
+  try {
+    const acf = {};
+    if (status) acf.status = status;
+    if (endedAt) acf.ended_at = toAcfDateTime(endedAt);
+    if (endedReason) acf.ended_reason = endedReason;
+
+    const response = await fetch(`${WP_BASE_URL}/wp-json/wp/v2/campaign/${wpPostId}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: wpAuthHeader(),
+      },
+      body: JSON.stringify({ acf }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error(`❌ updateWpCampaignStatus failed for post ${wpPostId} (HTTP ${response.status}): ${errorBody}`);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error(`❌ updateWpCampaignStatus error for post ${wpPostId}:`, err.message);
+    return false;
+  }
+}
+
+export {
+  createWpUser,
+  getWpPasswordResetLink,
+  getWpBrandPostIdBySlug,
+  createWpCampaignPost,
+  updateWpCampaignStatus,
+};
