@@ -189,7 +189,7 @@ async function createWpCampaignPost({
       discount_link: discountLink || "",
       status,
       valid_for_days: validForDays,
-      max_redemptions: maxRedemptions ?? "",
+      max_redemptions: maxRedemptions,
       max_redemptions_per_user: maxRedemptionsPerUser,
       source_campaign_id: sourceCampaignId,
     };
