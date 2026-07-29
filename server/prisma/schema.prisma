@@ -21,6 +21,9 @@ model Shop {
   settings     ShopSettings?
   campaigns   Campaign[]
   memberShopifyLinks MemberShopifyLink[]
+
+  wpBrandTermId       Int?
+  logoWpAttachmentId  Int?
 }
 
 model Campaign {

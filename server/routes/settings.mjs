@@ -1,12 +1,19 @@
 // server/routes/settings.mjs
 import express from "express";
+import multer from "multer";
 import prisma from "../prismaClient.js";
 //import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
 import { shopifyApi } from "@shopify/shopify-api";
 import { shopify } from "../shopify.js";
+import { uploadWpMedia, setWpTermLogo } from "../services/wordpress.js";
 
 
 const router = express.Router();
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+});
 
 // Extract ?shop from query
 router.use((req, res, next) => {
@@ -206,6 +213,49 @@ router.get("/collections", async (req, res) => {
   } catch (err) {
     console.error("❌ Error fetching collections:", err);
     res.status(500).json({ success: false, error: "Failed to fetch collections" });
+  }
+});
+
+/**
+ * ===========================================================
+ * POST /api/settings/logo?shop=...
+ *
+ * Accepts a single image upload (multipart/form-data, field name
+ * "logo"). Always uploads to the WP media library and caches the
+ * attachment ID on Shop — if a campaign_brand term already exists for
+ * this shop, also pushes it onto the term immediately. If not, it
+ * stays cached until the shop's first campaign creates the term (see
+ * routes/campaigns.mjs).
+ * ===========================================================
+ */
+router.post("/logo", upload.single("logo"), async (req, res) => {
+  try {
+    const shopDomain = req.query.shop;
+    const shop = await prisma.shop.findUnique({ where: { shopDomain } });
+
+    if (!shop) {
+      return res.status(404).json({ success: false, error: "Shop not found" });
+    }
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: "No file uploaded" });
+    }
+
+    const attachmentId = await uploadWpMedia(req.file.buffer, req.file.originalname, req.file.mimetype);
+
+    if (!attachmentId) {
+      return res.status(502).json({ success: false, error: "Failed to upload logo to WordPress" });
+    }
+
+    await prisma.shop.update({ where: { id: shop.id }, data: { logoWpAttachmentId: attachmentId } });
+
+    if (shop.wpBrandTermId) {
+      await setWpTermLogo(shop.wpBrandTermId, attachmentId);
+    }
+
+    res.json({ success: true, attachmentId });
+  } catch (err) {
+    console.error("❌ Error uploading logo:", err);
+    res.status(500).json({ success: false, error: "Failed to upload logo" });
   }
 });
 

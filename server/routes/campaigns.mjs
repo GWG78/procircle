@@ -5,11 +5,38 @@ import { createCampaignDiscount, setCampaignDiscountActive } from "../services/d
 import { getOrCreateSentinelCustomer } from "../services/shopifyCustomerService.js";
 import { countMatchingMembers } from "../services/eligibilityService.js";
 import { endCampaignAndNotify } from "../services/campaignLifecycleService.js";
-import { createWpCampaignPost, updateWpCampaignStatus } from "../services/wordpress.js";
+import {
+  createWpCampaignPost,
+  updateWpCampaignStatus,
+  getOrCreateWpTermId,
+  setWpTermLogo,
+} from "../services/wordpress.js";
 import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
+import { shopify } from "../shopify.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
+
+const SHOP_INFO_QUERY = `{ shop { name } }`;
+
+/**
+ * Fetches the shop's display name from Shopify's Admin API, for use as the
+ * campaign_brand term name on first term creation. Falls back to the raw
+ * shop domain on any failure — never throws, since this is a cosmetic
+ * naming detail, not something that should block campaign creation.
+ */
+async function getShopifyShopName(shop) {
+  try {
+    const client = new shopify.clients.Graphql({
+      session: { shop: shop.shopDomain, accessToken: shop.accessToken },
+    });
+    const response = await client.query({ data: { query: SHOP_INFO_QUERY } });
+    return response.body?.data?.shop?.name || shop.shopDomain;
+  } catch (err) {
+    console.error(`❌ getShopifyShopName failed for ${shop.shopDomain}:`, err.message);
+    return shop.shopDomain;
+  }
+}
 
 // discountCodeBasicCreate rejects an empty customers.add[] — this sentinel
 // keeps a campaign's discount customerSelection list non-empty from the
@@ -289,8 +316,26 @@ router.post("/create", verifyShopifyAuth, async (req, res) => {
     // already-billable Shopify discount, which is worse than a campaign
     // that just needs a manual WP catch-up later.
     try {
+      let termId = shop.wpBrandTermId;
+
+      if (!termId) {
+        const brandName = await getShopifyShopName(shop);
+        const result = await getOrCreateWpTermId("campaign_brand", brandName);
+        termId = result.id;
+
+        if (termId) {
+          await prisma.shop.update({ where: { id: shop.id }, data: { wpBrandTermId: termId } });
+
+          // A logo may already have been uploaded via Settings before this
+          // shop's first campaign — attach it now that the term exists.
+          if (shop.logoWpAttachmentId) {
+            await setWpTermLogo(termId, shop.logoWpAttachmentId);
+          }
+        }
+      }
+
       const wpPostId = await createWpCampaignPost({
-        brandName: shop.shopDomain,
+        brandTermId: termId,
         name: updated.name,
         slug: updated.slug,
         discountType: updated.discountType,

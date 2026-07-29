@@ -132,7 +132,7 @@ async function getOrCreateWpTermId(taxonomyRestBase, name) {
     if (searchRes.ok) {
       const terms = await searchRes.json();
       const exact = Array.isArray(terms) && terms.find((t) => t.name.toLowerCase() === name.toLowerCase());
-      if (exact) return exact.id;
+      if (exact) return { id: exact.id, created: false };
     }
     const createRes = await fetch(`${WP_BASE_URL}/wp-json/wp/v2/${taxonomyRestBase}`, {
       method: "POST",
@@ -142,23 +142,25 @@ async function getOrCreateWpTermId(taxonomyRestBase, name) {
     if (!createRes.ok) {
       const errorBody = await createRes.text();
       console.error(`❌ getOrCreateWpTermId failed to create term "${name}" (HTTP ${createRes.status}): ${errorBody}`);
-      return null;
+      return { id: null, created: false };
     }
     const created = await createRes.json();
-    return created.id;
+    return { id: created.id, created: true };
   } catch (err) {
     console.error(`❌ getOrCreateWpTermId error for term "${name}":`, err.message);
-    return null;
+    return { id: null, created: false };
   }
 }
 
 /**
  * Creates a WordPress "campaign" CPT post for a newly-created Campaign,
- * linking it to its brand via the campaign_brand taxonomy (resolved/created
- * by name through getOrCreateWpTermId above) rather than a Post ID
- * relationship — Node has no local Brand table to resolve a post ID from.
- * Only sets the fields Node knows at creation time — hero_image/description
- * are left for manual entry later, same enrich-later pattern as brand's
+ * linking it to its brand via the campaign_brand taxonomy. Takes an
+ * already-resolved brandTermId rather than resolving it internally — the
+ * caller (routes/campaigns.mjs) resolves/caches the term via
+ * getOrCreateWpTermId once per shop (on Shop.wpBrandTermId), since term
+ * resolution now also needs to trigger a first-time logo attach. Only sets
+ * the fields Node knows at creation time — hero_image/description are left
+ * for manual entry later, same enrich-later pattern as brand's
  * logo/brand_summary/discount_rate.
  *
  * Returns the new WP post ID on success, or null on any failure — never
@@ -166,7 +168,7 @@ async function getOrCreateWpTermId(taxonomyRestBase, name) {
  * already-billable Shopify discount (see routes/campaigns.mjs).
  */
 async function createWpCampaignPost({
-  brandName,
+  brandTermId,
   name,
   slug,
   discountType,
@@ -198,10 +200,7 @@ async function createWpCampaignPost({
 
     const body = { title: name, slug, status: "publish", acf };
 
-    if (brandName) {
-      const termId = await getOrCreateWpTermId("campaign_brand", brandName);
-      if (termId) body.campaign_brand = [termId];
-    }
+    if (brandTermId) body.campaign_brand = [brandTermId];
 
     const response = await fetch(`${WP_BASE_URL}/wp-json/wp/v2/campaign`, {
       method: "POST",
@@ -266,9 +265,70 @@ async function updateWpCampaignStatus(wpPostId, { status, endedAt, endedReason }
   }
 }
 
+/**
+ * Uploads image bytes to the WordPress media library. Returns the
+ * new attachment's numeric ID, or null on failure — never throws.
+ */
+async function uploadWpMedia(buffer, filename, mimeType) {
+  try {
+    const response = await fetch(`${WP_BASE_URL}/wp-json/wp/v2/media`, {
+      method: "POST",
+      headers: {
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Type": mimeType,
+        Authorization: wpAuthHeader(),
+      },
+      body: buffer,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error(`❌ uploadWpMedia failed (HTTP ${response.status}): ${errorBody}`);
+      return null;
+    }
+
+    const json = await response.json();
+    return json.id;
+  } catch (err) {
+    console.error("❌ uploadWpMedia error:", err.message);
+    return null;
+  }
+}
+
+/**
+ * Sets the logo ACF field on an existing campaign_brand term.
+ * Returns true/false — never throws.
+ */
+async function setWpTermLogo(termId, attachmentId) {
+  try {
+    const response = await fetch(`${WP_BASE_URL}/wp-json/wp/v2/campaign_brand/${termId}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: wpAuthHeader(),
+      },
+      body: JSON.stringify({ acf: { logo: attachmentId } }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error(`❌ setWpTermLogo failed for term ${termId} (HTTP ${response.status}): ${errorBody}`);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error(`❌ setWpTermLogo error for term ${termId}:`, err.message);
+    return false;
+  }
+}
+
 export {
   createWpUser,
   getWpPasswordResetLink,
   createWpCampaignPost,
   updateWpCampaignStatus,
+  getOrCreateWpTermId,
+  uploadWpMedia,
+  setWpTermLogo,
 };
