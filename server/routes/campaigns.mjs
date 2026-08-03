@@ -30,8 +30,8 @@ async function getShopifyShopName(shop) {
     const client = new shopify.clients.Graphql({
       session: { shop: shop.shopDomain, accessToken: shop.accessToken },
     });
-    const response = await client.query({ data: { query: SHOP_INFO_QUERY } });
-    return response.body?.data?.shop?.name || shop.shopDomain;
+    const response = await client.request(SHOP_INFO_QUERY);
+    return response.data?.shop?.name || shop.shopDomain;
   } catch (err) {
     console.error(`❌ getShopifyShopName failed for ${shop.shopDomain}:`, err.message);
     return shop.shopDomain;
@@ -490,6 +490,133 @@ router.get("/active-filters", async (req, res) => {
   } catch (err) {
     console.error("❌ Error loading active filters:", err);
     res.status(500).json({ success: false, error: "Failed to load active filters" });
+  }
+});
+
+const COLLECTION_DETAILS_QUERY = `
+  query GetCollectionDetails($id: ID!, $first: Int!, $after: String) {
+    collection(id: $id) {
+      title
+      products(first: $first, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id }
+      }
+    }
+  }
+`;
+
+/**
+ * Fetches a collection's title and every product ID in it (paginated in
+ * batches of 250). Title is included because the checkout extension's
+ * Product API only exposes id/vendor/productType — no product title — so
+ * a message like "Your cart contains 3 jackets" has to come from the
+ * collection's own title, resolved here rather than in the extension.
+ * Returns { title: null, productIds: [] } on any failure — one
+ * collection's lookup failing shouldn't take down the whole /limits
+ * response, it just means that collection won't be flagged this request.
+ */
+async function fetchCollectionDetails(shop, collectionId) {
+  const client = new shopify.clients.Graphql({
+    session: { shop: shop.shopDomain, accessToken: shop.accessToken },
+  });
+
+  let title = null;
+  const productIds = [];
+  let after = null;
+  let hasNextPage = true;
+
+  try {
+    while (hasNextPage) {
+      // client.query() is deprecated as of shopify-api 12.0.0 and throws
+      // rather than warns on this installed version — client.request() is
+      // the current API. Its response shape differs: .data directly, not
+      // the old .query()'s .body.data wrapper.
+      const response = await client.request(COLLECTION_DETAILS_QUERY, {
+        variables: { id: collectionId, first: 250, after },
+      });
+
+      const collection = response.data?.collection;
+      if (!collection) break;
+
+      title = collection.title;
+
+      for (const node of collection.products.nodes) productIds.push(node.id);
+
+      hasNextPage = collection.products.pageInfo.hasNextPage;
+      after = collection.products.pageInfo.endCursor;
+    }
+  } catch (err) {
+    console.error(`❌ fetchCollectionDetails failed for ${collectionId}:`, err.message);
+    return { title: null, productIds: [] };
+  }
+
+  return { title, productIds };
+}
+
+/**
+ * ===========================================================
+ * GET /api/campaigns/limits?code=...
+ *
+ * Public — called directly from the storefront Cart UI Extension, not the
+ * embedded admin app, so this deliberately has no verifyShopifyAuth (a
+ * storefront extension has no X-Shopify-Access-Token or App Bridge session
+ * token to send). Looks up the campaign backing a discount code and
+ * returns its per-collection max-items rules, plus a productId ->
+ * collectionId[] map (resolved server-side) so the extension never has to
+ * call Shopify itself — see "Mapping cart lines to collections, option A".
+ *
+ * Always responds 200 with an empty-but-valid shape ({ limits: [],
+ * productCollections: {} }) rather than a 4xx/5xx for "no campaign found,"
+ * "no collection limits," or an unexpected server error — this is a
+ * storefront-facing, never-block-checkout endpoint, and every failure mode
+ * here should degrade to "show no warning," not surface as a fetch error
+ * the extension has to specially handle.
+ * ===========================================================
+ */
+router.get("/limits", async (req, res) => {
+  try {
+    const code = typeof req.query.code === "string" ? req.query.code.trim().toUpperCase() : "";
+    if (!code) {
+      return res.json({ limits: [], productCollections: {} });
+    }
+
+    // No @unique constraint on discountCode, but in practice it's 1:1 with
+    // slug (which is unique) — findFirst rather than findUnique.
+    const campaign = await prisma.campaign.findFirst({
+      where: { discountCode: code },
+      include: { filters: true, shop: true },
+    });
+
+    if (!campaign) {
+      return res.json({ limits: [], productCollections: {} });
+    }
+
+    const limitedFilters = campaign.filters.filter(
+      (f) => f.filterType === "collection" && f.maxItems != null
+    );
+
+    if (!limitedFilters.length) {
+      return res.json({ limits: [], productCollections: {} });
+    }
+
+    const limits = [];
+    const productCollections = {};
+
+    for (const filter of limitedFilters) {
+      const { title, productIds } = await fetchCollectionDetails(campaign.shop, filter.value);
+
+      limits.push({ collectionId: filter.value, maxItems: filter.maxItems, title });
+
+      for (const productId of productIds) {
+        if (!productCollections[productId]) productCollections[productId] = [];
+        productCollections[productId].push(filter.value);
+      }
+    }
+
+    res.json({ limits, productCollections });
+  } catch (err) {
+    console.error("❌ Error loading campaign limits:", err);
+    res.json({ limits: [], productCollections: {} });
   }
 });
 

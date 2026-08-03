@@ -50,6 +50,21 @@ console.log("🔧 Loading index.js");
 
 // CORS for Shopify Admin iframe
 app.use((req, res, next) => {
+  // /api/campaigns/limits is called from the storefront Cart UI Extension's
+  // sandbox, not the embedded admin iframe — it never sends cookies/session
+  // (no Allow-Credentials needed) and isn't running on admin.shopify.com, so
+  // it gets an open origin instead of the admin-only one below. It's a
+  // public, read-only, non-sensitive endpoint (collection GIDs + item caps
+  // for a given discount code), so this is safe.
+  if (req.path === "/api/campaigns/limits") {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Headers", "Content-Type, X-Requested-With");
+    res.header("Access-Control-Allow-Methods", "GET, OPTIONS");
+
+    if (req.method === "OPTIONS") return res.sendStatus(200);
+    return next();
+  }
+
   res.header("Access-Control-Allow-Origin", "https://admin.shopify.com");
   res.header("Access-Control-Allow-Credentials", "true");
   res.header("Access-Control-Allow-Headers", "Content-Type, X-Requested-With");
