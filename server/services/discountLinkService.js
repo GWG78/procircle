@@ -95,9 +95,13 @@ async function shopifyGraphQL(shop, query, variables) {
  * @param {{ shopDomain: string, accessToken: string }} shop
  * @param {{ name: string, slug: string, discountType: string, discountValue: number, startsAt?: Date|string|null, maxRedemptions?: number|null }} campaign
  * @param {string} sentinelCustomerId Shopify customer GID seeded into customerSelection.customers.add
+ * @param {string[]} [collectionGids] Shopify Collection GIDs from this campaign's
+ *   `filterType: 'collection'` filters. When non-empty, the discount is scoped to
+ *   just these collections (customerGets.items.collections.add); when empty, it
+ *   applies to all products (items.all: true) — unchanged prior behavior.
  * @returns {Promise<{ discountCode: string, discountLink: string, shopifyDiscountId: string }>}
  */
-async function createCampaignDiscount(shop, campaign, sentinelCustomerId) {
+async function createCampaignDiscount(shop, campaign, sentinelCustomerId, collectionGids = []) {
   const discountCode = `PROCIRCLE-${campaign.slug.toUpperCase()}`;
 
   const input = {
@@ -115,7 +119,9 @@ async function createCampaignDiscount(shop, campaign, sentinelCustomerId) {
         campaign.discountType === "percentage"
           ? { percentage: campaign.discountValue / 100 }
           : { discountAmount: { amount: campaign.discountValue, appliesOnEachItem: false } },
-      items: { all: true },
+      items: collectionGids.length
+        ? { collections: { add: collectionGids } }
+        : { all: true },
     },
     appliesOncePerCustomer: true,
     usageLimit: campaign.maxRedemptions ?? null,

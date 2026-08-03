@@ -234,11 +234,27 @@ router.post("/create", verifyShopifyAuth, async (req, res) => {
       return res.status(400).json({ success: false, error: "validForDays must be at least 30" });
     }
 
-    const cleanFilters = Array.isArray(filters)
-      ? filters
-          .filter((f) => f && typeof f.filterType === "string" && typeof f.value === "string")
-          .map((f) => ({ filterType: f.filterType.trim(), value: f.value.trim() }))
-      : [];
+    // maxItems is only ever meaningful on a "collection" filter — read/
+    // validated here, silently ignored (never persisted) on any other
+    // filterType so role/country filters keep their existing shape.
+    const cleanFilters = [];
+    for (const f of Array.isArray(filters) ? filters : []) {
+      if (!f || typeof f.filterType !== "string" || typeof f.value !== "string") continue;
+
+      const filterType = f.filterType.trim();
+      const value = f.value.trim();
+
+      let maxItems = null;
+      if (filterType === "collection" && f.maxItems != null && f.maxItems !== "") {
+        const numericMaxItems = Number(f.maxItems);
+        if (!Number.isInteger(numericMaxItems) || numericMaxItems < 1) {
+          return res.status(400).json({ success: false, error: "maxItems must be a positive integer" });
+        }
+        maxItems = numericMaxItems;
+      }
+
+      cleanFilters.push({ filterType, value, maxItems });
+    }
 
     const slug = await uniqueSlug(name);
 
@@ -267,6 +283,7 @@ router.post("/create", verifyShopifyAuth, async (req, res) => {
             campaignId: created.id,
             filterType: f.filterType,
             value: f.value,
+            maxItems: f.maxItems,
           })),
         });
       }
@@ -282,8 +299,12 @@ router.post("/create", verifyShopifyAuth, async (req, res) => {
     // orphaned campaign with no discount.
     let discountResult;
     try {
+      const collectionGids = cleanFilters
+        .filter((f) => f.filterType === "collection")
+        .map((f) => f.value);
+
       const sentinelCustomerId = await getOrCreateSentinelCustomer(shop, SENTINEL_CUSTOMER);
-      discountResult = await createCampaignDiscount(shop, campaign, sentinelCustomerId);
+      discountResult = await createCampaignDiscount(shop, campaign, sentinelCustomerId, collectionGids);
     } catch (err) {
       console.error(`❌ Discount setup failed for campaign ${campaign.id}:`, err);
 

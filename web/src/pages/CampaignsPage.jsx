@@ -126,6 +126,13 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
   const [refineOpen, setRefineOpen] = useState(false)
   const [audienceCount, setAudienceCount] = useState(null)
   const [audienceLoading, setAudienceLoading] = useState(false)
+  // Raw per-collection "max items" input text, keyed by collection id — kept
+  // separate from form.collectionIds (which only ever holds the clean,
+  // submit-ready number|null) so an in-progress invalid value like "0" stays
+  // visible in the field alongside its error, instead of the field
+  // reverting to blank the instant it's rejected.
+  const [maxItemsText, setMaxItemsText] = useState({})
+  const [maxItemsErrors, setMaxItemsErrors] = useState({})
 
   useEffect(() => {
     if (open) {
@@ -133,6 +140,8 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
       setError('')
       setActiveFilters(EMPTY_ACTIVE_FILTERS)
       setRefineOpen(false)
+      setMaxItemsText({})
+      setMaxItemsErrors({})
 
       fetch(`/api/campaigns/active-filters?shop=${shop}`, { credentials: 'include' })
         .then((res) => res.json())
@@ -181,6 +190,50 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
   }, [open, form.roles, form.countries, shopify])
 
   const setField = useCallback((key) => (value) => setForm((f) => ({ ...f, [key]: value })), [])
+
+  const toggleCollection = useCallback((collectionId, checked) => {
+    setForm((f) => ({
+      ...f,
+      collectionIds: checked
+        ? [...f.collectionIds, { id: collectionId, maxItems: null }]
+        : f.collectionIds.filter((c) => c.id !== collectionId),
+    }))
+    setMaxItemsText((t) => {
+      const next = { ...t }
+      delete next[collectionId]
+      return next
+    })
+    setMaxItemsErrors((e) => {
+      const next = { ...e }
+      delete next[collectionId]
+      return next
+    })
+  }, [])
+
+  const handleMaxItemsChange = useCallback((collectionId, rawValue) => {
+    setMaxItemsText((t) => ({ ...t, [collectionId]: rawValue }))
+
+    if (rawValue === '') {
+      setMaxItemsErrors((e) => ({ ...e, [collectionId]: undefined }))
+      setForm((f) => ({
+        ...f,
+        collectionIds: f.collectionIds.map((c) => (c.id === collectionId ? { ...c, maxItems: null } : c)),
+      }))
+      return
+    }
+
+    const parsed = Number(rawValue)
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      setMaxItemsErrors((e) => ({ ...e, [collectionId]: 'Must be at least 1' }))
+      return
+    }
+
+    setMaxItemsErrors((e) => ({ ...e, [collectionId]: undefined }))
+    setForm((f) => ({
+      ...f,
+      collectionIds: f.collectionIds.map((c) => (c.id === collectionId ? { ...c, maxItems: parsed } : c)),
+    }))
+  }, [])
 
   // Loose conflict rule for the create form (approximate — uses the flat
   // active-filter sets, not per-campaign overlap; see server-side
@@ -244,10 +297,17 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
       return
     }
 
+    if (form.restrictCollections && Object.values(maxItemsErrors).some(Boolean)) {
+      setError('Fix the invalid "max items per order" values before creating the campaign.')
+      return
+    }
+
     const filters = [
       ...form.roles.map((value) => ({ filterType: 'role', value })),
       ...form.countries.map((value) => ({ filterType: 'country', value })),
-      ...(form.restrictCollections ? form.collectionIds.map((value) => ({ filterType: 'collection', value })) : []),
+      ...(form.restrictCollections
+        ? form.collectionIds.map((c) => ({ filterType: 'collection', value: c.id, maxItems: c.maxItems ?? null }))
+        : []),
     ]
 
     const payload = {
@@ -284,7 +344,7 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
     } finally {
       setSubmitting(false)
     }
-  }, [form, onCreated, shopify])
+  }, [form, onCreated, shopify, maxItemsErrors])
 
   const shownCollections = collections.length
 
@@ -442,16 +502,38 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
                   Showing {shownCollections} of {shownCollections} collections
                 </Text>
                 <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid var(--p-color-border)', borderRadius: '8px', padding: '0.5rem' }}>
-                  <ChoiceList
-                    allowMultiple
-                    titleHidden
-                    choices={collections.map((c) => ({
-                      value: c.id,
-                      label: `${c.title} (${c.productCount})`,
-                    }))}
-                    selected={form.collectionIds}
-                    onChange={setField('collectionIds')}
-                  />
+                  <BlockStack gap="200">
+                    {collections.map((c) => {
+                      const selected = form.collectionIds.find((sel) => sel.id === c.id)
+                      const isChecked = !!selected
+                      const textValue = maxItemsText[c.id] ?? (selected?.maxItems != null ? String(selected.maxItems) : '')
+
+                      return (
+                        <InlineStack key={c.id} gap="200" align="start" blockAlign="center">
+                          <Checkbox
+                            label={`${c.title} (${c.productCount})`}
+                            checked={isChecked}
+                            onChange={(checked) => toggleCollection(c.id, checked)}
+                          />
+                          {isChecked && (
+                            <div style={{ maxWidth: '80px' }}>
+                              <TextField
+                                labelHidden
+                                label="Max items per order"
+                                placeholder="Unlimited"
+                                type="number"
+                                min={1}
+                                value={textValue}
+                                error={maxItemsErrors[c.id]}
+                                onChange={(value) => handleMaxItemsChange(c.id, value)}
+                                autoComplete="off"
+                              />
+                            </div>
+                          )}
+                        </InlineStack>
+                      )
+                    })}
+                  </BlockStack>
                 </div>
               </BlockStack>
             )}
