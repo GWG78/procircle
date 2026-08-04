@@ -147,7 +147,7 @@ async function createCampaignDiscount(shop, campaign, sentinelCustomerId, collec
     throw new Error("Shopify did not return a discount id for the created discount.");
   }
 
-  const discountLink = `https://${shop.shopDomain}/discount/${returnedCode}?redirect=/collections/all`;
+  const discountLink = `https://${shop.shopDomain}/discount/${returnedCode}?redirect=/`;
 
   return { discountCode: returnedCode, discountLink, shopifyDiscountId };
 }
