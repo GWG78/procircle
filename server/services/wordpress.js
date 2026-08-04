@@ -181,6 +181,7 @@ async function createWpCampaignPost({
   maxRedemptions,
   maxRedemptionsPerUser,
   sourceCampaignId,
+  logoAttachmentId,
 }) {
   try {
     const acf = {
@@ -197,6 +198,7 @@ async function createWpCampaignPost({
     };
 
     if (startsAt) acf.starts_at = toAcfDateTime(startsAt);
+    if (logoAttachmentId) acf.logo = logoAttachmentId;
 
     const body = { title: name, slug, status: "publish", acf };
 

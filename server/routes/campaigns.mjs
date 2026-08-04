@@ -352,6 +352,7 @@ router.post("/create", verifyShopifyAuth, async (req, res) => {
         maxRedemptions: updated.maxRedemptions,
         maxRedemptionsPerUser: updated.maxRedemptionsPerUser,
         sourceCampaignId: updated.id,
+        logoAttachmentId: shop.logoWpAttachmentId,
       });
 
       if (wpPostId) {
