@@ -138,12 +138,6 @@ model CampaignFilter {
   filterType String
   value      String
 
-  // Only ever set when filterType === "collection" — caps how many items
-  // from that collection a member can include in one order. Null means
-  // unlimited. Left generic on the model rather than a separate table since
-  // it's a single optional int tied 1:1 to a collection filter row.
-  maxItems   Int?
-
   @@index([campaignId])
 }
 
