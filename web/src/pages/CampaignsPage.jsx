@@ -103,7 +103,6 @@ function formatRevenue(amount) {
    ============================================================ */
 const EMPTY_FORM = {
   name: '',
-  discountType: 'percentage',
   discountValue: '',
   startDate: '',
   validForDays: '30',
@@ -234,7 +233,7 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
     }
     const discountValueNum = Number(form.discountValue)
     if (!form.discountValue || isNaN(discountValueNum) || discountValueNum <= 0) {
-      setError('Discount value must be a positive number.')
+      setError('Discount percentage must be a positive number.')
       return
     }
 
@@ -252,7 +251,7 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
 
     const payload = {
       name: form.name.trim(),
-      discountType: form.discountType,
+      discountType: 'percentage',
       discountValue: discountValueNum,
       startsAt: form.startDate ? `${form.startDate}T00:00:00Z` : null,
       validForDays: validForDaysNum,
@@ -315,26 +314,16 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
               autoComplete="off"
               requiredIndicator
             />
-            <FormLayout.Group>
-              <Select
-                label="Discount type"
-                options={[
-                  { label: 'Percentage off', value: 'percentage' },
-                  { label: 'Fixed amount off', value: 'fixed' },
-                ]}
-                value={form.discountType}
-                onChange={setField('discountType')}
-              />
-              <TextField
-                label="Discount value"
-                type="number"
-                min={1}
-                value={form.discountValue}
-                onChange={setField('discountValue')}
-                autoComplete="off"
-                requiredIndicator
-              />
-            </FormLayout.Group>
+            <TextField
+              label="Discount percentage"
+              type="number"
+              min={1}
+              suffix="%"
+              value={form.discountValue}
+              onChange={setField('discountValue')}
+              autoComplete="off"
+              requiredIndicator
+            />
 
             <Divider />
             <Text variant="headingSm" as="h3">

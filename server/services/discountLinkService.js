@@ -115,10 +115,13 @@ async function createCampaignDiscount(shop, campaign, sentinelCustomerId, collec
       },
     },
     customerGets: {
-      value:
-        campaign.discountType === "percentage"
-          ? { percentage: campaign.discountValue / 100 }
-          : { discountAmount: { amount: campaign.discountValue, appliesOnEachItem: false } },
+      // ProCircle is percentage-only (see routes/campaigns.mjs's create
+      // validation) — the fixed-amount branch this used to have is gone.
+      // Safe to simplify outright, not just leave unreachable: this
+      // function has exactly one call site (campaign creation), so no
+      // pre-existing campaign can ever re-enter it, and there are zero
+      // Campaign rows with discountType "fixed" as of this change.
+      value: { percentage: campaign.discountValue / 100 },
       items: collectionGids.length
         ? { collections: { add: collectionGids } }
         : { all: true },

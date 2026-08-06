@@ -200,6 +200,18 @@ router.post("/create", verifyShopifyAuth, async (req, res) => {
       return res.status(400).json({ success: false, error: "name is required" });
     }
 
+    // ProCircle is percentage-only — members span multiple currencies, and
+    // a fixed amount would need currency-aware display/application logic
+    // nothing has ever used (every campaign to date is "percentage").
+    // Omitting discountType defaults to "percentage" (the only value this
+    // endpoint has ever produced from the UI); an explicit value that
+    // isn't "percentage" is rejected outright rather than silently
+    // coerced, unlike the old `discountType === "fixed" ? "fixed" :
+    // "percentage"` ternary this replaces.
+    if (discountType != null && discountType !== "" && discountType !== "percentage") {
+      return res.status(400).json({ success: false, error: "discountType must be 'percentage'" });
+    }
+
     const numericDiscountValue = Number(discountValue);
     if (!discountValue || isNaN(numericDiscountValue) || numericDiscountValue <= 0) {
       return res.status(400).json({ success: false, error: "discountValue must be a positive number" });
@@ -227,7 +239,7 @@ router.post("/create", verifyShopifyAuth, async (req, res) => {
           shopId: shop.id,
           name: name.trim(),
           slug,
-          discountType: discountType === "fixed" ? "fixed" : "percentage",
+          discountType: "percentage",
           discountValue: numericDiscountValue,
           startsAt: startsAt ? new Date(startsAt) : null,
           validForDays: numericValidForDays,
