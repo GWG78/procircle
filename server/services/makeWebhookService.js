@@ -1,20 +1,19 @@
 // services/makeWebhookService.js
 //
-// Triggers Make.com scenarios: emailing a member the campaign discount link,
-// syncing completed order data to Google Sheets, and the daily expiry
-// reminder/notification pair.
+// Triggers Make.com scenarios: syncing completed order data to Google
+// Sheets, and the daily expiry reminder/notification pair. The redemption
+// code email used to go through here too (triggerCodeEmail) — it's been
+// migrated to a direct Resend call (services/resendService.js's
+// sendCodeEmail), since Make.com was never actually configured for that
+// flow and no email was ever delivered through it. See
+// routes/redemptions.mjs.
 
 // None of these ever throw — a failed Make.com call (missing config, non-2xx
 // response, or network failure) must never abort the caller's real work.
-// triggerCodeEmail in particular: the Shopify customer-add always happens
-// before it's called (see routes/redemptions.mjs), so a throw here used to
-// leave Redemption.status stuck at "failed" even though access was already
-// granted — and dailyExpiryJob.mjs only ever queries status: "confirmed",
-// so that member's Shopify customer ID would never get cleaned up. The same
-// treatment is applied to the other three for consistency; dailyExpiryJob.mjs
-// already wraps each redemption's processing in its own try/catch, so this
-// isn't needed for batch isolation there, but it keeps a notification
-// failure from being misreported as the whole expiry action failing.
+// dailyExpiryJob.mjs already wraps each redemption's processing in its own
+// try/catch, so this isn't needed for batch isolation there, but it keeps a
+// notification failure from being misreported as the whole expiry action
+// failing.
 //
 // Each failure is logged with an [ALERT] tag distinct from ordinary
 // console.warn noise, meant to be noticeable to whoever monitors these logs
@@ -22,10 +21,11 @@
 // gap, not something that should disappear silently.
 //
 // Returns true/false for success — callers that don't have anything to gate
-// on it (triggerCodeEmail, triggerOrderSync, triggerExpiryNotification) just
-// don't propagate the return value, which is unchanged for them. triggerExpiryReminder
-// does propagate it, so dailyExpiryJob.mjs can leave reminderSentAt unset on
-// failure and let the redemption retry on the next run.
+// on it (triggerOrderSync, triggerExpiryNotification, triggerCampaignEnded)
+// just don't propagate the return value, which is unchanged for them.
+// triggerExpiryReminder does propagate it, so dailyExpiryJob.mjs can leave
+// reminderSentAt unset on failure and let the redemption retry on the next
+// run.
 async function postToMakeWebhook({ url, missingUrlContext, payload, failureContext }) {
   if (!url) {
     console.error(`[ALERT] ${missingUrlContext}`);
@@ -49,16 +49,6 @@ async function postToMakeWebhook({ url, missingUrlContext, payload, failureConte
     console.error(`[ALERT] ${failureContext} (${err.message})`);
     return false;
   }
-}
-
-async function triggerCodeEmail({ memberEmail, discountLink, campaignName, brandName }) {
-  const consequence = `member ${memberEmail} was granted access but will NOT receive their code email. Campaign: ${campaignName}.`;
-  await postToMakeWebhook({
-    url: process.env.MAKE_WEBHOOK_URL,
-    missingUrlContext: `triggerCodeEmail: MAKE_WEBHOOK_URL not set — ${consequence}`,
-    payload: { memberEmail, discountLink, campaignName, brandName },
-    failureContext: `triggerCodeEmail: Make.com webhook failed — ${consequence}`,
-  });
 }
 
 async function triggerOrderSync({ memberEmail, campaignName, brandName, shopifyOrderId, orderAmount, orderCompletedAt }) {
@@ -106,7 +96,6 @@ async function triggerCampaignEnded({ memberEmail, campaignName, brandName }) {
 }
 
 export {
-  triggerCodeEmail,
   triggerOrderSync,
   triggerExpiryReminder,
   triggerExpiryNotification,

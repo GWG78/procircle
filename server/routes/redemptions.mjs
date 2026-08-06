@@ -4,7 +4,8 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { PrismaClient } from "@prisma/client";
 import { getOffersForMember, checkEligibility } from "../services/eligibilityService.js";
 import { getOrCreateCustomer, addMemberToCampaignDiscount } from "../services/shopifyCustomerService.js";
-import { triggerCodeEmail } from "../services/makeWebhookService.js";
+import { sendCodeEmail } from "../services/resendService.js";
+import { getOrFetchShopName } from "../services/shopService.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -124,26 +125,18 @@ router.post("/request", ipLimiter, emailLimiter, async (req, res) => {
 
     const redemption = txResult.redemption;
 
-    // Everything below is a side effect (Shopify + email). Failures here are
-    // operational, not user-facing: mark the Redemption failed and log it,
-    // but always tell the member their code is on its way.
+    // Stage 1: grant Shopify access. A failure here is real — the member
+    // does NOT actually have access — so it must be reported as an error,
+    // not silently swallowed into the same "confirmed" response as a mere
+    // email-delivery failure (which is what this used to do; a Shopify
+    // failure and an email failure were previously indistinguishable to
+    // the caller, both just resulting in "You'll receive your code by
+    // email shortly" even when that was false).
     try {
       const shopifyCustomerId = await getOrCreateCustomer(campaign.shop, member);
       await addMemberToCampaignDiscount(campaign.shop, campaign, shopifyCustomerId);
-
-      await triggerCodeEmail({
-        memberEmail: member.email,
-        discountLink: campaign.discountLink,
-        campaignName: campaign.name,
-        brandName: campaign.shop.shopDomain,
-      });
-
-      await prisma.redemption.update({
-        where: { id: redemption.id },
-        data: { status: "confirmed" },
-      });
     } catch (err) {
-      console.error(`❌ Redemption ${redemption.id} fulfillment failed:`, err);
+      console.error(`❌ Redemption ${redemption.id} Shopify fulfillment failed:`, err);
       try {
         await prisma.redemption.update({
           where: { id: redemption.id },
@@ -152,6 +145,33 @@ router.post("/request", ipLimiter, emailLimiter, async (req, res) => {
       } catch (updateErr) {
         console.error(`❌ Failed to mark redemption ${redemption.id} as failed:`, updateErr);
       }
+      return res.status(500).json({ success: false, error: "Failed to grant discount access. Please try again." });
+    }
+
+    // Stage 2: email the code. Best-effort — access is already granted by
+    // this point, so this must never turn a real access-grant into an
+    // error response. sendCodeEmail never throws even on failure (see
+    // resendService.js) — a missing/failed Resend call is logged there
+    // with an [ALERT] tag and nothing more; it's surfaced to whoever
+    // monitors Render's logs, not to the member.
+    const brandName = await getOrFetchShopName(campaign.shopId);
+    await sendCodeEmail({
+      memberEmail: member.email,
+      memberFirstName: member.firstName,
+      discountAmount: `${campaign.discountValue}%`,
+      discountCode: campaign.discountCode,
+      discountLink: campaign.discountLink,
+      campaignName: campaign.name,
+      brandName,
+    });
+
+    try {
+      await prisma.redemption.update({
+        where: { id: redemption.id },
+        data: { status: "confirmed" },
+      });
+    } catch (err) {
+      console.error(`❌ Failed to mark redemption ${redemption.id} as confirmed:`, err);
     }
 
     return res.status(200).json({
