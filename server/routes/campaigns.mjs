@@ -12,31 +12,9 @@ import {
   setWpTermLogo,
 } from "../services/wordpress.js";
 import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
-import { shopify } from "../shopify.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
-
-const SHOP_INFO_QUERY = `{ shop { name } }`;
-
-/**
- * Fetches the shop's display name from Shopify's Admin API, for use as the
- * campaign_brand term name on first term creation. Falls back to the raw
- * shop domain on any failure — never throws, since this is a cosmetic
- * naming detail, not something that should block campaign creation.
- */
-async function getShopifyShopName(shop) {
-  try {
-    const client = new shopify.clients.Graphql({
-      session: { shop: shop.shopDomain, accessToken: shop.accessToken },
-    });
-    const response = await client.request(SHOP_INFO_QUERY);
-    return response.data?.shop?.name || shop.shopDomain;
-  } catch (err) {
-    console.error(`❌ getShopifyShopName failed for ${shop.shopDomain}:`, err.message);
-    return shop.shopDomain;
-  }
-}
 
 // discountCodeBasicCreate rejects an empty customers.add[] — this sentinel
 // keeps a campaign's discount customerSelection list non-empty from the
@@ -323,8 +301,13 @@ router.post("/create", verifyShopifyAuth, async (req, res) => {
       let termId = shop.wpBrandTermId;
 
       if (!termId) {
-        const brandName = await getShopifyShopName(shop);
-        const result = await getOrCreateWpTermId("campaign_brand", brandName);
+        // Keyed on the raw shop domain, not a fetched display name — this
+        // term is now purely a filtering/grouping key on the WordPress
+        // side. Members see the real brand name via offer.brandName
+        // (services/shopService.js), sent straight from Node on every
+        // offers request, so nothing ever reads this term's own name for
+        // display anymore.
+        const result = await getOrCreateWpTermId("campaign_brand", shop.shopDomain);
         termId = result.id;
 
         if (termId) {

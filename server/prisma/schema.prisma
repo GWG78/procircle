@@ -24,6 +24,8 @@ model Shop {
 
   wpBrandTermId       Int?
   logoWpAttachmentId  Int?
+  name                String?
+  displayNameOverride String?
 }
 
 model Campaign {

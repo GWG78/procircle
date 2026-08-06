@@ -9,6 +9,7 @@
 // it's already the correctly-cased DB row.
 
 import { PrismaClient } from "@prisma/client";
+import { getOrFetchShopName } from "./shopService.js";
 
 const prisma = new PrismaClient();
 
@@ -61,6 +62,7 @@ async function getOffersForMember(member) {
   });
 
   const eligible = [];
+  const shopNameCache = new Map(); // dedupe within a single offers request
 
   for (const campaign of campaigns) {
     if (!memberMatchesFilters(member, campaign.filters)) continue;
@@ -87,8 +89,19 @@ async function getOffersForMember(member) {
 
     // shopDomain flattened onto the campaign (rather than leaving callers
     // to dig into campaign.shop.shopDomain) — WordPress matches this back
-    // to a Brand post's shop_domain ACF field to render brand info.
-    eligible.push({ ...campaign, status, shopDomain: campaign.shop?.shopDomain ?? null });
+    // to the campaign_brand taxonomy term to render brand info.
+    //
+    // brandName is the shop's real Shopify business name (cached on
+    // Shop.name, fetched live on first request — see shopService.js), sent
+    // straight through so WordPress never needs to store/maintain a brand
+    // display name itself.
+    let brandName = shopNameCache.get(campaign.shopId);
+    if (brandName === undefined) {
+      brandName = await getOrFetchShopName(campaign.shopId);
+      shopNameCache.set(campaign.shopId, brandName);
+    }
+
+    eligible.push({ ...campaign, status, shopDomain: campaign.shop?.shopDomain ?? null, brandName });
   }
 
   return eligible;
