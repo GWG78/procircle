@@ -38,9 +38,16 @@ function memberMatchesFilters(member, filters) {
 }
 
 /**
- * Returns all campaigns a member is eligible to see, each annotated with
- * a status of "available" or "fully_claimed". Campaigns the member has
- * already confirmed-redeemed are excluded entirely.
+ * Returns all campaigns a member is eligible to see, each annotated with a
+ * status of "claimed" (this member has already confirmed-redeemed it —
+ * shown as a disabled "Claimed" card rather than hidden, to reinforce the
+ * benefit they already got), "fully_claimed" (campaign-wide cap reached,
+ * but not by this member), or "available". "claimed" takes priority over
+ * "fully_claimed" — a member's own claimed state is more relevant to their
+ * view than the campaign's overall cap status. This is purely a display
+ * concern: it does not affect redemption gating, which is still enforced
+ * independently by checkEligibility below (the same already_redeemed
+ * rejection as before).
  */
 async function getOffersForMember(member) {
   if (!member.verified) return [];
@@ -79,11 +86,11 @@ async function getOffersForMember(member) {
         OR: [{ accessExpiresAt: null }, { accessExpiresAt: { gt: now } }],
       },
     });
-    if (alreadyRedeemed) continue;
 
     const confirmedCount = campaign._count.redemptions;
-    const status =
-      campaign.maxRedemptions != null && confirmedCount >= campaign.maxRedemptions
+    const status = alreadyRedeemed
+      ? "claimed"
+      : campaign.maxRedemptions != null && confirmedCount >= campaign.maxRedemptions
         ? "fully_claimed"
         : "available";
 
