@@ -3,7 +3,9 @@ import crypto from "crypto";
 import { PrismaClient } from "@prisma/client";
 import appUninstalledHandler from "../webhooks/appUninstalled.mjs";
 import discountDeletedHandler from "../webhooks/discountDeleted.mjs";
-import { shopifyApi, DeliveryMethod } from "@shopify/shopify-api";
+import customersDataRequestHandler from "../webhooks/customersDataRequest.mjs";
+import customersRedactHandler from "../webhooks/customersRedact.mjs";
+import shopRedactHandler from "../webhooks/shopRedact.mjs";
 import { triggerOrderSync } from "../services/makeWebhookService.js";
 
 const prisma = new PrismaClient();
@@ -161,7 +163,10 @@ router.post(
       res.status(200).send("Uninstall processed.");
     } catch (err) {
       console.error("❌ Error handling app uninstall webhook:", err);
-      res.status(500).send("Webhook failed.");
+      // Always 200 here, even on failure — Shopify retries non-2xx
+      // responses, and a bad retry storm on this endpoint is worse than a
+      // missed uninstall cleanup we can reconcile manually.
+      res.status(200).send("Webhook failed but acknowledged.");
     }
   }
 );
@@ -203,6 +208,132 @@ router.post(
     } catch (err) {
       console.error("❌ Error handling discount deleted webhook:", err);
       res.status(500).send("Webhook failed.");
+    }
+  }
+);
+
+/**
+ * 📋 Handle CUSTOMERS_DATA_REQUEST webhook (customers/data_request) — GDPR
+ */
+router.post(
+  "/customers-data-request",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const hmacHeader = req.get("X-Shopify-Hmac-Sha256");
+      const secret = process.env.SHOPIFY_API_SECRET;
+      const rawBody = req.body;
+
+      if (!Buffer.isBuffer(rawBody)) {
+        console.error("❌ Expected raw buffer, got:", typeof rawBody);
+        return res.status(400).send("Invalid raw body type");
+      }
+
+      const generatedHmac = crypto
+        .createHmac("sha256", secret)
+        .update(rawBody)
+        .digest("base64");
+
+      if (generatedHmac !== hmacHeader) {
+        console.error("❌ Webhook verification failed — invalid signature");
+        return res.status(401).send("Unauthorized");
+      }
+
+      console.log("✅ Customers Data Request Webhook verified!");
+      const body = JSON.parse(rawBody.toString("utf8"));
+      const shopDomain = body.shop_domain || req.get("X-Shopify-Shop-Domain");
+
+      await customersDataRequestHandler("CUSTOMERS_DATA_REQUEST", shopDomain, body);
+
+      res.status(200).send("Data request acknowledged.");
+    } catch (err) {
+      console.error("❌ Error handling customers data request webhook:", err);
+      // Always 200, even on failure — GDPR webhooks must never trigger
+      // Shopify retry storms. See app-uninstalled route for the same
+      // reasoning.
+      res.status(200).send("Webhook failed but acknowledged.");
+    }
+  }
+);
+
+/**
+ * 🗑️ Handle CUSTOMERS_REDACT webhook (customers/redact) — GDPR
+ */
+router.post(
+  "/customers-redact",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const hmacHeader = req.get("X-Shopify-Hmac-Sha256");
+      const secret = process.env.SHOPIFY_API_SECRET;
+      const rawBody = req.body;
+
+      if (!Buffer.isBuffer(rawBody)) {
+        console.error("❌ Expected raw buffer, got:", typeof rawBody);
+        return res.status(400).send("Invalid raw body type");
+      }
+
+      const generatedHmac = crypto
+        .createHmac("sha256", secret)
+        .update(rawBody)
+        .digest("base64");
+
+      if (generatedHmac !== hmacHeader) {
+        console.error("❌ Webhook verification failed — invalid signature");
+        return res.status(401).send("Unauthorized");
+      }
+
+      console.log("✅ Customers Redact Webhook verified!");
+      const body = JSON.parse(rawBody.toString("utf8"));
+      const shopDomain = body.shop_domain || req.get("X-Shopify-Shop-Domain");
+
+      await customersRedactHandler("CUSTOMERS_REDACT", shopDomain, body);
+
+      res.status(200).send("Redact processed.");
+    } catch (err) {
+      console.error("❌ Error handling customers redact webhook:", err);
+      res.status(200).send("Webhook failed but acknowledged.");
+    }
+  }
+);
+
+/**
+ * 🗑️ Handle SHOP_REDACT webhook (shop/redact) — GDPR
+ */
+router.post(
+  "/shop-redact",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const hmacHeader = req.get("X-Shopify-Hmac-Sha256");
+      const secret = process.env.SHOPIFY_API_SECRET;
+      const rawBody = req.body;
+
+      if (!Buffer.isBuffer(rawBody)) {
+        console.error("❌ Expected raw buffer, got:", typeof rawBody);
+        return res.status(400).send("Invalid raw body type");
+      }
+
+      const generatedHmac = crypto
+        .createHmac("sha256", secret)
+        .update(rawBody)
+        .digest("base64");
+
+      if (generatedHmac !== hmacHeader) {
+        console.error("❌ Webhook verification failed — invalid signature");
+        return res.status(401).send("Unauthorized");
+      }
+
+      console.log("✅ Shop Redact Webhook verified!");
+      const body = JSON.parse(rawBody.toString("utf8"));
+      const shopDomain = body.shop_domain || req.get("X-Shopify-Shop-Domain");
+
+      await shopRedactHandler("SHOP_REDACT", shopDomain, body);
+
+      res.status(200).send("Redact processed.");
+    } catch (err) {
+      console.error("❌ Error handling shop redact webhook:", err);
+      res.status(200).send("Webhook failed but acknowledged.");
     }
   }
 );
