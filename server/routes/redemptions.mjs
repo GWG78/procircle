@@ -6,6 +6,7 @@ import { getOffersForMember, checkEligibility } from "../services/eligibilitySer
 import { getOrCreateCustomer, addMemberToCampaignDiscount } from "../services/shopifyCustomerService.js";
 import { sendCodeEmail } from "../services/resendService.js";
 import { getOrFetchShopName } from "../services/shopService.js";
+import { logDataAccess } from "../utils/accessLog.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -77,6 +78,15 @@ router.post("/request", ipLimiter, emailLimiter, async (req, res) => {
     if (!campaign) {
       return res.status(404).json({ success: false, error: "Campaign not found" });
     }
+
+    logDataAccess({
+      action: 'READ',
+      dataType: 'Member',
+      shop: campaign.shop.shopDomain,
+      requestedBy: 'wordpress-server',
+      recordCount: 1,
+      fields: ['email', 'firstName', 'lastName', 'role', 'country', 'resort', 'verified'],
+    });
 
     const check = await checkEligibility(member, campaign.id);
     if (!check.eligible) {
@@ -199,6 +209,17 @@ router.get("/offers", async (req, res) => {
     if (!member) {
       return res.status(404).json({ success: false, error: "Member not found" });
     }
+
+    // Not shop-scoped — offers span every shop the member could redeem
+    // from, not one shop's data.
+    logDataAccess({
+      action: 'READ',
+      dataType: 'Member',
+      shop: null,
+      requestedBy: 'wordpress-server',
+      recordCount: 1,
+      fields: ['email', 'firstName', 'lastName', 'role', 'country', 'resort', 'verified'],
+    });
 
     const offers = await getOffersForMember(member);
     return res.json({ success: true, offers });

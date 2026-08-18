@@ -10,6 +10,7 @@
 import { PrismaClient } from "@prisma/client";
 import { triggerCampaignEnded } from "./makeWebhookService.js";
 import { updateWpCampaignStatus } from "./wordpress.js";
+import { logDataAccess } from "../utils/accessLog.js";
 
 const prisma = new PrismaClient();
 
@@ -23,11 +24,16 @@ const prisma = new PrismaClient();
  * notifications; the loser sees count === 0 and skips them, so Make.com
  * never fires twice for the same campaign ending.
  *
+ * Called from both an authenticated merchant route (routes/campaigns.mjs)
+ * and a webhook handler (webhooks/discountDeleted.mjs) — requestedBy lets
+ * each caller identify itself accurately in the access log below, since
+ * this function reads Member data (redemption.member.email) internally.
+ *
  * @param {number} campaignId
- * @param {{ endedReason?: string, shopDomain: string }} options
+ * @param {{ endedReason?: string, shopDomain: string, requestedBy: string }} options
  * @returns {Promise<{ wonRace: boolean, campaign: import("@prisma/client").Campaign | null }>}
  */
-async function endCampaignAndNotify(campaignId, { endedReason, shopDomain }) {
+async function endCampaignAndNotify(campaignId, { endedReason, shopDomain, requestedBy }) {
   const { count } = await prisma.campaign.updateMany({
     where: { id: campaignId, status: { not: "ended" } },
     data: {
@@ -56,6 +62,17 @@ async function endCampaignAndNotify(campaignId, { endedReason, shopDomain }) {
     where: { campaignId, status: "confirmed", shopifyOrderId: null },
     include: { member: true },
   });
+
+  if (claimedMembers.length > 0) {
+    logDataAccess({
+      action: 'READ',
+      dataType: 'Member',
+      shop: shopDomain,
+      requestedBy: requestedBy || 'system',
+      recordCount: claimedMembers.length,
+      fields: ['email'],
+    });
+  }
 
   for (const redemption of claimedMembers) {
     await triggerCampaignEnded({

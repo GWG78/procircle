@@ -36,6 +36,7 @@ export default async function discountDeletedHandler(topic, shop, body) {
   const { wonRace } = await endCampaignAndNotify(campaign.id, {
     endedReason: "shopify_discount_deleted_externally",
     shopDomain: shop,
+    requestedBy: "shopify-discounts-webhook",
   });
 
   if (wonRace) {

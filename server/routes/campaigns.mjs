@@ -658,7 +658,7 @@ router.post("/:id/end", verifyShopifyAuth, async (req, res) => {
 
     // Race-safe against the discounts/delete webhook landing at the same
     // moment — see campaignLifecycleService for how that's handled.
-    await endCampaignAndNotify(campaignId, { shopDomain: shop.shopDomain });
+    await endCampaignAndNotify(campaignId, { shopDomain: shop.shopDomain, requestedBy: shop.shopDomain });
 
     const updated = await prisma.campaign.findUnique({
       where: { id: campaignId },

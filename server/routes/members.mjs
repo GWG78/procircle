@@ -8,6 +8,7 @@ import crypto from "node:crypto";
 import express from "express";
 import { PrismaClient } from "@prisma/client";
 import { createWpUser, getWpPasswordResetLink } from "../services/wordpress.js";
+import { logDataAccess } from "../utils/accessLog.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -39,6 +40,15 @@ router.get("/verify", async (req, res) => {
       return res.redirect(`${VERIFY_REDIRECT_BASE}?status=invalid`);
     }
 
+    logDataAccess({
+      action: 'READ',
+      dataType: 'Member',
+      shop: null,
+      requestedBy: 'member-verification-link',
+      recordCount: 1,
+      fields: ['email', 'firstName', 'lastName', 'verificationToken', 'verificationTokenExpiresAt'],
+    });
+
     if (!member.verificationTokenExpiresAt || member.verificationTokenExpiresAt < new Date()) {
       return res.redirect(`${VERIFY_REDIRECT_BASE}?status=expired`);
     }
@@ -51,6 +61,15 @@ router.get("/verify", async (req, res) => {
         verificationToken: null,
         verificationTokenExpiresAt: null,
       },
+    });
+
+    logDataAccess({
+      action: 'WRITE',
+      dataType: 'Member',
+      shop: null,
+      requestedBy: 'member-verification-link',
+      recordCount: 1,
+      fields: ['verified', 'verifiedAt', 'verificationToken', 'verificationTokenExpiresAt'],
     });
 
     // From here on, verification itself is already done — both WP steps
@@ -145,6 +164,15 @@ router.post("/", async (req, res) => {
       create: { email: cleanEmail, ...data },
     });
 
+    logDataAccess({
+      action: 'WRITE',
+      dataType: 'Member',
+      shop: null,
+      requestedBy: 'apps-script',
+      recordCount: 1,
+      fields: ['email', 'firstName', 'lastName', 'role', 'country', 'resort'],
+    });
+
     const now = new Date();
     const tokenExpired = !member.verificationTokenExpiresAt || member.verificationTokenExpiresAt < now;
 
@@ -158,6 +186,15 @@ router.post("/", async (req, res) => {
           verificationToken,
           verificationTokenExpiresAt: new Date(now.getTime() + VERIFICATION_TOKEN_TTL_MS),
         },
+      });
+
+      logDataAccess({
+        action: 'WRITE',
+        dataType: 'Member',
+        shop: null,
+        requestedBy: 'apps-script',
+        recordCount: 1,
+        fields: ['verificationToken', 'verificationTokenExpiresAt'],
       });
     } else if (!member.verified) {
       // Not verified, but already holds an unexpired token from a previous

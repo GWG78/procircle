@@ -1,5 +1,6 @@
 // server/webhooks/customersRedact.mjs
 import { PrismaClient } from "@prisma/client";
+import { logDataAccess } from "../utils/accessLog.js";
 
 const prisma = new PrismaClient();
 
@@ -34,6 +35,15 @@ export default async function customersRedactHandler(topic, shop, body) {
       return;
     }
 
+    logDataAccess({
+      action: 'READ',
+      dataType: 'Member',
+      shop,
+      requestedBy: 'shopify-gdpr-webhook',
+      recordCount: 1,
+      fields: ['email', 'firstName', 'lastName', 'socialLinks'],
+    });
+
     // Member.email is non-nullable + unique, so it can't be set to literal
     // null — overwrite with a synthetic unique value instead. firstName,
     // lastName, and socialLinks are nullable and cleared outright. The row
@@ -47,6 +57,15 @@ export default async function customersRedactHandler(topic, shop, body) {
         lastName: null,
         socialLinks: null,
       },
+    });
+
+    logDataAccess({
+      action: 'REDACT',
+      dataType: 'Member',
+      shop,
+      requestedBy: 'shopify-gdpr-webhook',
+      recordCount: 1,
+      fields: ['email', 'firstName', 'lastName', 'socialLinks'],
     });
 
     console.log(`✅ Redacted PII for Member ${member.id} (shop: ${shop})`);
