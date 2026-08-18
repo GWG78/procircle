@@ -6,6 +6,7 @@ import discountDeletedHandler from "../webhooks/discountDeleted.mjs";
 import customersDataRequestHandler from "../webhooks/customersDataRequest.mjs";
 import customersRedactHandler from "../webhooks/customersRedact.mjs";
 import shopRedactHandler from "../webhooks/shopRedact.mjs";
+import ordersPaidHandler from "../webhooks/ordersPaid.mjs";
 import { triggerOrderSync } from "../services/makeWebhookService.js";
 
 const prisma = new PrismaClient();
@@ -395,6 +396,50 @@ router.post(
       console.error("❌ Error handling GDPR webhook:", err);
       // Always 200, even on failure — GDPR webhooks must never trigger
       // Shopify retry storms. Same reasoning as the other GDPR routes.
+      res.status(200).send("Webhook failed but acknowledged.");
+    }
+  }
+);
+
+/**
+ * 💰 Handle ORDERS_PAID webhook (orders/paid) — billing
+ */
+router.post(
+  "/orders-paid",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const hmacHeader = req.get("X-Shopify-Hmac-Sha256");
+      const secret = process.env.SHOPIFY_API_SECRET;
+      const rawBody = req.body;
+
+      if (!Buffer.isBuffer(rawBody)) {
+        console.error("❌ Expected raw buffer, got:", typeof rawBody);
+        return res.status(400).send("Invalid raw body type");
+      }
+
+      const generatedHmac = crypto
+        .createHmac("sha256", secret)
+        .update(rawBody)
+        .digest("base64");
+
+      if (generatedHmac !== hmacHeader) {
+        console.error("❌ Webhook verification failed — invalid signature");
+        return res.status(401).send("Unauthorized");
+      }
+
+      console.log("✅ Orders Paid Webhook verified!");
+      const body = JSON.parse(rawBody.toString("utf8"));
+      const shopDomain = req.get("X-Shopify-Shop-Domain");
+
+      await ordersPaidHandler("ORDERS_PAID", shopDomain, body);
+
+      res.status(200).send("Order paid processed.");
+    } catch (err) {
+      console.error("❌ Error handling orders paid webhook:", err);
+      // Always 200, even on failure — a missed commission charge is
+      // reconcilable manually; a retry storm on a billing endpoint is not
+      // something we want Shopify doing repeatedly.
       res.status(200).send("Webhook failed but acknowledged.");
     }
   }

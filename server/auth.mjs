@@ -3,6 +3,7 @@ import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
 import { shopify } from "./shopify.js";
+import { ensureBillingSubscription } from "./services/billing.js";
 
 
 dotenv.config();
@@ -139,7 +140,29 @@ router.get("/auth/callback", async (req, res) => {
     // app's bare server URL — the standard, App-Store-expected post-install
     // destination for an embedded app. Previously redirected to this app's
     // own "/" directly, which would have loaded outside the Admin.
-    return res.redirect(`https://${shopDomain}/admin/apps/${process.env.SHOPIFY_API_KEY}`);
+    const embeddedAppUrl = `https://${shopDomain}/admin/apps/${process.env.SHOPIFY_API_KEY}`;
+
+    // Billing must never block install — any failure here just falls
+    // through to the normal embedded-app redirect below.
+    try {
+      const billing = await ensureBillingSubscription(shopDomain, accessToken, embeddedAppUrl);
+
+      if (billing?.lineItemId) {
+        await prisma.shop.update({
+          where: { shopDomain },
+          data: { billingSubscriptionId: billing.lineItemId },
+        });
+      }
+
+      if (billing?.confirmationUrl) {
+        console.log(`💳 Redirecting ${shopDomain} to billing confirmation`);
+        return res.redirect(billing.confirmationUrl);
+      }
+    } catch (billingErr) {
+      console.error(`❌ Billing subscription setup failed for ${shopDomain}:`, billingErr);
+    }
+
+    return res.redirect(embeddedAppUrl);
 
   } catch (err) {
     console.error("❌ OAuth callback error:", err);

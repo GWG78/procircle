@@ -26,6 +26,15 @@ model Shop {
   logoWpAttachmentId  Int?
   name                String?
   displayNameOverride String?
+
+  // Commission rate applied to verified pro deal sales (0.08 = 8%),
+  // overridable per shop. See webhooks/ordersPaid.mjs.
+  commissionRate        Float   @default(0.08)
+  // Despite the name, this stores the app subscription *line item* id
+  // (AppSubscriptionLineItem.id), not the subscription id itself — that's
+  // what appUsageRecordCreate's subscriptionLineItemId argument requires.
+  // Set by services/billing.js at install time. See services/usageRecord.js.
+  billingSubscriptionId String?
 }
 
 model Campaign {
