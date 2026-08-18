@@ -338,4 +338,66 @@ router.post(
   }
 );
 
+/**
+ * 📜 Single consolidated GDPR compliance endpoint — routes on
+ * X-Shopify-Topic to the same handlers used by the standalone
+ * /customers-data-request, /customers-redact, and /shop-redact routes
+ * above (which remain in place). Matches shopify.app.toml's
+ * compliance_topics subscription, which points all three mandatory GDPR
+ * topics at this one URI.
+ */
+router.post(
+  "/gdpr",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const hmacHeader = req.get("X-Shopify-Hmac-Sha256");
+      const secret = process.env.SHOPIFY_API_SECRET;
+      const rawBody = req.body;
+
+      if (!Buffer.isBuffer(rawBody)) {
+        console.error("❌ Expected raw buffer, got:", typeof rawBody);
+        return res.status(400).send("Invalid raw body type");
+      }
+
+      const generatedHmac = crypto
+        .createHmac("sha256", secret)
+        .update(rawBody)
+        .digest("base64");
+
+      if (generatedHmac !== hmacHeader) {
+        console.error("❌ Webhook verification failed — invalid signature");
+        return res.status(401).send("Unauthorized");
+      }
+
+      const topic = req.get("X-Shopify-Topic");
+      console.log(`✅ GDPR Webhook verified! Topic: ${topic}`);
+
+      const body = JSON.parse(rawBody.toString("utf8"));
+      const shopDomain = body.shop_domain || req.get("X-Shopify-Shop-Domain");
+
+      switch (topic) {
+        case "customers/data_request":
+          await customersDataRequestHandler("CUSTOMERS_DATA_REQUEST", shopDomain, body);
+          break;
+        case "customers/redact":
+          await customersRedactHandler("CUSTOMERS_REDACT", shopDomain, body);
+          break;
+        case "shop/redact":
+          await shopRedactHandler("SHOP_REDACT", shopDomain, body);
+          break;
+        default:
+          console.error(`❌ Unrecognized GDPR topic on /gdpr: ${topic}`);
+      }
+
+      res.status(200).send("GDPR webhook processed.");
+    } catch (err) {
+      console.error("❌ Error handling GDPR webhook:", err);
+      // Always 200, even on failure — GDPR webhooks must never trigger
+      // Shopify retry storms. Same reasoning as the other GDPR routes.
+      res.status(200).send("Webhook failed but acknowledged.");
+    }
+  }
+);
+
 export default router;
