@@ -1,6 +1,7 @@
 // server/routes/collections.mjs
 import express from "express";
 import { PrismaClient } from "@prisma/client";
+import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -94,15 +95,12 @@ async function fetchAllCollections(shop) {
  * GET /api/collections?shop=...
  * ===========================================================
  */
-router.get("/", async (req, res) => {
+router.get("/", verifyShopifyAuth, async (req, res) => {
   try {
-    const shopDomain = req.query.shop;
-    if (!shopDomain) {
-      return res.status(400).json({ success: false, error: "shop is required" });
-    }
-
-    const shop = await prisma.shop.findUnique({ where: { shopDomain } });
-    if (!shop || !shop.accessToken) {
+    // Authoritative shop comes from the verified session token, not
+    // req.query.shop — that's caller-supplied and shouldn't be trusted.
+    const shop = req.shopifyShop;
+    if (!shop.accessToken) {
       return res.status(404).json({ success: false, error: "Shop not found" });
     }
 

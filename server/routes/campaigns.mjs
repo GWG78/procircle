@@ -386,17 +386,11 @@ router.post("/create", verifyShopifyAuth, async (req, res) => {
  * GET /api/campaigns?shop=...
  * ===========================================================
  */
-router.get("/", async (req, res) => {
+router.get("/", verifyShopifyAuth, async (req, res) => {
   try {
-    const shopDomain = req.query.shop;
-    if (!shopDomain) {
-      return res.status(400).json({ success: false, error: "shop is required" });
-    }
-
-    const shop = await prisma.shop.findUnique({ where: { shopDomain } });
-    if (!shop) {
-      return res.status(404).json({ success: false, error: "Shop not found" });
-    }
+    // Authoritative shop comes from the verified session token, not
+    // req.query.shop — that's caller-supplied and shouldn't be trusted.
+    const shop = req.shopifyShop;
 
     const campaigns = await prisma.campaign.findMany({
       where: { shopId: shop.id },
@@ -435,17 +429,9 @@ router.get("/", async (req, res) => {
  * pairwise conflict checking (that's checkAudienceConflict's job).
  * ===========================================================
  */
-router.get("/active-filters", async (req, res) => {
+router.get("/active-filters", verifyShopifyAuth, async (req, res) => {
   try {
-    const shopDomain = req.query.shop;
-    if (!shopDomain) {
-      return res.status(400).json({ success: false, error: "shop is required" });
-    }
-
-    const shop = await prisma.shop.findUnique({ where: { shopDomain } });
-    if (!shop) {
-      return res.status(404).json({ success: false, error: "Shop not found" });
-    }
+    const shop = req.shopifyShop;
 
     const excludeCampaignId = req.query.excludeCampaignId ? Number(req.query.excludeCampaignId) : null;
 

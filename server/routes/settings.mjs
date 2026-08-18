@@ -2,7 +2,7 @@
 import express from "express";
 import multer from "multer";
 import prisma from "../prismaClient.js";
-//import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
+import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
 import { shopifyApi } from "@shopify/shopify-api";
 import { shopify } from "../shopify.js";
 import { uploadWpMedia, setWpTermLogo } from "../services/wordpress.js";
@@ -13,19 +13,6 @@ const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-});
-
-// Extract ?shop from query
-router.use((req, res, next) => {
-  req.shop = req.query.shop || null;
-  next();
-});
-
-// Extract ?shop= from query and attach to req.shop
-router.use((req, res, next) => {
-  const shop = req.query.shop || req.headers["x-shopify-shop-domain"];
-  req.shop = shop;
-  next();
 });
 
 /* Shopify API (matches index.js)
@@ -79,18 +66,15 @@ function sanitizeStringArray(value) {
  * Returns existing settings or default structure
  * ===========================================================
  */
-router.get("/", async (req, res) => {
+router.get("/", verifyShopifyAuth, async (req, res) => {
   try {
-    const shopDomain = req.query.shop;
-
+    // Authoritative shop comes from the verified session token, not
+    // req.query.shop — that's caller-supplied and shouldn't be trusted.
     const shop = await prisma.shop.findUnique({
-      where: { shopDomain },
+      where: { id: req.shopifyShop.id },
       include: { settings: true },
     });
-
-    if (!shop) {
-      return res.status(404).json({ success: false, error: "Shop not found" });
-    }
+    const shopDomain = req.shopifyShop.shopDomain;
 
     // Return defaults if settings do not yet exist
     if (!shop.settings) {
@@ -118,17 +102,9 @@ router.get("/", async (req, res) => {
  * Saves settings to DB
  * ===========================================================
  */
-router.post("/", async (req, res) => {
+router.post("/", verifyShopifyAuth, async (req, res) => {
   try {
-    const shopDomain = req.query.shop;
-
-    const shop = await prisma.shop.findUnique({
-      where: { shopDomain },
-    });
-
-    if (!shop) {
-      return res.status(404).json({ success: false, error: "Shop not found" });
-    }
+    const shop = req.shopifyShop;
 
     const { categories } = req.body;
 
@@ -173,21 +149,17 @@ router.post("/", async (req, res) => {
  * Fetches Shopify smart + custom collections
  * ===========================================================
  */
-router.get("/collections", async (req, res) => {
+router.get("/collections", verifyShopifyAuth, async (req, res) => {
   try {
-    const shopDomain = req.shop;
+    const shop = req.shopifyShop;
 
-    const shop = await prisma.shop.findUnique({
-      where: { shopDomain },
-    });
-
-    if (!shop || !shop.accessToken) {
+    if (!shop.accessToken) {
       return res.status(404).json({ success: false, error: "Missing shop or access token" });
     }
 
     const client = new shopify.clients.Rest({
       session: {
-        shop: shopDomain,
+        shop: shop.shopDomain,
         accessToken: shop.accessToken,
       },
     });
@@ -228,14 +200,10 @@ router.get("/collections", async (req, res) => {
  * routes/campaigns.mjs).
  * ===========================================================
  */
-router.post("/logo", upload.single("logo"), async (req, res) => {
+router.post("/logo", verifyShopifyAuth, upload.single("logo"), async (req, res) => {
   try {
-    const shopDomain = req.query.shop;
-    const shop = await prisma.shop.findUnique({ where: { shopDomain } });
+    const shop = req.shopifyShop;
 
-    if (!shop) {
-      return res.status(404).json({ success: false, error: "Shop not found" });
-    }
     if (!req.file) {
       return res.status(400).json({ success: false, error: "No file uploaded" });
     }
