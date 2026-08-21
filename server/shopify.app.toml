@@ -1,6 +1,6 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "7f981c82991c74472ab72dd1bca78ec5"
+client_id = "207654bcf160a85ef5abf6fa59f8f832"
 name = "ProCircle"
 application_url = "https://procircle-server.onrender.com"
 embedded = true
