@@ -12,9 +12,28 @@ import {
   setWpTermLogo,
 } from "../services/wordpress.js";
 import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
+import { isBrandProfileComplete } from "../services/brandProfileService.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
+
+const PROFILE_INCOMPLETE_ERROR =
+  "Complete your brand profile in Settings before activating a campaign.";
+
+/**
+ * Independent server-side re-check — the /setup gate (web/src/App.jsx) is
+ * meant to keep an incomplete shop from reaching this endpoint at all, but
+ * this must not rely on that: it's the authoritative check. Every path that
+ * transitions a campaign's status to "active" must call this first. Note
+ * that campaigns are created active by default (no separate draft-then-
+ * activate step — see Campaign.status in schema.prisma), so this applies to
+ * both POST /create and POST /:id/resume, not just a dedicated "activate"
+ * action.
+ */
+async function requireCompleteBrandProfile(shopId) {
+  const settings = await prisma.shopSettings.findUnique({ where: { shopId } });
+  return isBrandProfileComplete(settings);
+}
 
 // discountCodeBasicCreate rejects an empty customers.add[] — this sentinel
 // keeps a campaign's discount customerSelection list non-empty from the
@@ -184,6 +203,16 @@ router.post("/create", verifyShopifyAuth, async (req, res) => {
     // Authoritative shop comes from the verified session token, not
     // req.query.shop — that's caller-supplied and shouldn't be trusted.
     const shop = req.shopifyShop;
+
+    // Campaigns are created active by default (see requireCompleteBrandProfile
+    // above) — this is the activation gate for creation.
+    if (!(await requireCompleteBrandProfile(shop.id))) {
+      return res.status(400).json({
+        success: false,
+        error: PROFILE_INCOMPLETE_ERROR,
+        code: "PROFILE_INCOMPLETE",
+      });
+    }
 
     const {
       name,
@@ -543,6 +572,14 @@ router.post("/:id/resume", verifyShopifyAuth, async (req, res) => {
     }
     if (campaign.status !== "paused") {
       return res.status(400).json({ success: false, error: `Cannot resume a campaign with status "${campaign.status}"` });
+    }
+
+    if (!(await requireCompleteBrandProfile(shop.id))) {
+      return res.status(400).json({
+        success: false,
+        error: PROFILE_INCOMPLETE_ERROR,
+        code: "PROFILE_INCOMPLETE",
+      });
     }
 
     const conflict = await checkAudienceConflict(campaignId, shop.id);

@@ -157,7 +157,15 @@ model ShopSettings {
   shopId             Int       @unique
   shop               Shop      @relation(fields: [shopId], references: [id])
 
-  categories         String[]  @default([]) // product category handles
+  categories         String[]  @default([]) // product category handles — deprecated, no longer read/written; kept for now, see services/brandProfileService.js
+
+  // Brand profile — shown to members who may not recognize the shop, and
+  // used to email the shop when a campaign nears its redemption limit.
+  // Required (logo excluded) to pass first-run setup and to activate a
+  // campaign — see services/brandProfileService.js.
+  description        String?
+  contactName        String?
+  contactEmail       String?
 
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt

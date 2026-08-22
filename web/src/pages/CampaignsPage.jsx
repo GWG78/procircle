@@ -116,11 +116,12 @@ const EMPTY_FORM = {
 
 const EMPTY_ACTIVE_FILTERS = { role: [], country: [], resort: [] }
 
-function CreateCampaignModal({ open, onClose, onCreated, collections }) {
+function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collections }) {
   const shopify = useAppBridge()
   const [form, setForm] = useState(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [profileIncomplete, setProfileIncomplete] = useState(false)
   const [activeFilters, setActiveFilters] = useState(EMPTY_ACTIVE_FILTERS)
   const [refineOpen, setRefineOpen] = useState(false)
   const [audienceCount, setAudienceCount] = useState(null)
@@ -130,10 +131,18 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
     if (open) {
       setForm(EMPTY_FORM)
       setError('')
+      setProfileIncomplete(false)
       setActiveFilters(EMPTY_ACTIVE_FILTERS)
       setRefineOpen(false)
 
-      fetch(`/api/campaigns/active-filters?shop=${shop}`, { credentials: 'include' })
+      shopify
+        .idToken()
+        .then((token) =>
+          fetch(`/api/campaigns/active-filters?shop=${shop}`, {
+            credentials: 'include',
+            headers: { Authorization: `Bearer ${token}` },
+          })
+        )
         .then((res) => res.json())
         .then((data) => {
           if (data.success) {
@@ -144,7 +153,7 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
           // Non-fatal — the form just won't grey out any options.
         })
     }
-  }, [open])
+  }, [open, shopify])
 
   // Live audience-size counter — fires once on open (showing the full
   // verified-member count when nothing is selected) and again on every
@@ -273,6 +282,7 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
       const data = await res.json()
 
       if (!data.success) {
+        setProfileIncomplete(data.code === 'PROFILE_INCOMPLETE')
         setError(data.error || 'Failed to create campaign.')
         return
       }
@@ -301,7 +311,24 @@ function CreateCampaignModal({ open, onClose, onCreated, collections }) {
     >
       <Modal.Section>
         <BlockStack gap="400">
-          {error && <Banner tone="critical">{error}</Banner>}
+          {error && (
+            <Banner
+              tone="critical"
+              action={
+                profileIncomplete
+                  ? {
+                      content: 'Go to Settings',
+                      onAction: () => {
+                        onClose()
+                        onGoToSettings?.()
+                      },
+                    }
+                  : undefined
+              }
+            >
+              {error}
+            </Banner>
+          )}
 
           <FormLayout>
             <Text variant="headingSm" as="h3">
@@ -656,7 +683,7 @@ function CampaignsList({ campaigns, collections, onPauseResume, onEndRequested, 
 /* ============================================================
    Page
    ============================================================ */
-export default function CampaignsPage() {
+export default function CampaignsPage({ onGoToSettings }) {
   const [campaigns, setCampaigns] = useState([])
   const [collections, setCollections] = useState([])
   const [loading, setLoading] = useState(true)
@@ -668,23 +695,31 @@ export default function CampaignsPage() {
 
   const loadCampaigns = useCallback(async () => {
     try {
-      const res = await fetch(`/api/campaigns?shop=${shop}`, { credentials: 'include' })
+      const token = await shopify.idToken()
+      const res = await fetch(`/api/campaigns?shop=${shop}`, {
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${token}` },
+      })
       const data = await res.json()
       if (data.success) setCampaigns(data.campaigns)
     } catch {
       setToast({ message: 'Failed to load campaigns', error: true })
     }
-  }, [])
+  }, [shopify])
 
   const loadCollections = useCallback(async () => {
     try {
-      const res = await fetch(`/api/collections?shop=${shop}`, { credentials: 'include' })
+      const token = await shopify.idToken()
+      const res = await fetch(`/api/collections?shop=${shop}`, {
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${token}` },
+      })
       const data = await res.json()
       if (data.success) setCollections(data.collections)
     } catch {
       // Non-fatal — collection restriction just won't be selectable.
     }
-  }, [])
+  }, [shopify])
 
   useEffect(() => {
     setLoading(true)
@@ -723,7 +758,14 @@ export default function CampaignsPage() {
           return
         }
         if (!data.success) {
-          setToast({ message: data.error || `Failed to ${action} campaign`, error: true })
+          setToast({
+            message: data.error || `Failed to ${action} campaign`,
+            error: true,
+            action:
+              data.code === 'PROFILE_INCOMPLETE' && onGoToSettings
+                ? { content: 'Go to Settings', onAction: onGoToSettings }
+                : undefined,
+          })
           return
         }
 
@@ -735,7 +777,7 @@ export default function CampaignsPage() {
         setActionLoadingId(null)
       }
     },
-    [shopify]
+    [shopify, onGoToSettings]
   )
 
   const handleEnded = useCallback((updatedCampaign) => {
@@ -790,6 +832,7 @@ export default function CampaignsPage() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onCreated={handleCreated}
+        onGoToSettings={onGoToSettings}
         collections={collections}
       />
 
@@ -800,7 +843,9 @@ export default function CampaignsPage() {
         onToastError={handleToastError}
       />
 
-      {toast && <Toast content={toast.message} error={toast.error} onDismiss={() => setToast(null)} />}
+      {toast && (
+        <Toast content={toast.message} error={toast.error} action={toast.action} onDismiss={() => setToast(null)} />
+      )}
     </Page>
   )
 }
