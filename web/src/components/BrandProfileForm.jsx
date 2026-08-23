@@ -132,7 +132,14 @@ export default function BrandProfileForm({ submitLabel, onSaveSuccess, requireCo
   const canSubmit = !requireComplete || complete
 
   return (
-    <>
+    <BlockStack gap="400">
+      <Card>
+        <Text as="p">
+          Your logo and brand description are shown to members browsing your pro deals. Your contact details are
+          kept private — we'll only use them to let you know if a campaign is approaching its redemption limit.
+        </Text>
+      </Card>
+
       <Card>
         <BlockStack gap="400">
           <FormLayout>
@@ -159,8 +166,8 @@ export default function BrandProfileForm({ submitLabel, onSaveSuccess, requireCo
               showCharacterCount
               autoComplete="off"
               requiredIndicator
-              placeholder="e.g. Forward Outdoor makes technical ski and mountain apparel designed for instructors and guides who spend all day outside."
-              helpText="Shown to members on the ProCircle site who may not be familiar with your brand."
+              placeholder="e.g. We make technical ski and outdoor apparel designed for guides and instructors who spend all day outside."
+              helpText="A brief description of your brand and what you sell."
             />
           </FormLayout>
 
@@ -185,8 +192,7 @@ export default function BrandProfileForm({ submitLabel, onSaveSuccess, requireCo
               />
             </FormLayout.Group>
             <Text as="p" tone="subdued" variant="bodySm">
-              We'll email this address if one of your campaigns is approaching its redemption limit, so you can
-              raise the limit or start a new campaign.
+              We'll use this to email you if a campaign is approaching its redemption limit.
             </Text>
           </FormLayout>
 
@@ -205,6 +211,6 @@ export default function BrandProfileForm({ submitLabel, onSaveSuccess, requireCo
           onDismiss={() => setToast(null)}
         />
       )}
-    </>
+    </BlockStack>
   )
 }
