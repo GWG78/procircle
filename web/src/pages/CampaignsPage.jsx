@@ -469,7 +469,7 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
                   icon={refineOpen ? ChevronUpIcon : ChevronDownIcon}
                   onClick={() => setRefineOpen((o) => !o)}
                 >
-                  Refine audience (optional)
+                  Refine audience — optional
                 </Button>
                 {!refineOpen && (
                   <Text as="p" tone="subdued" variant="bodySm">
@@ -482,7 +482,8 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
                 <Box padding="300">
                   <BlockStack gap="300">
                     <Text as="p" tone="subdued" variant="bodySm">
-                      Leave this closed to reach all verified members.
+                      Select the roles and regions you want this campaign to reach. Leave everything unchecked to
+                      reach all verified members.
                     </Text>
                     <ChoiceList
                       title="Roles"
@@ -498,10 +499,6 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
                       selected={form.countries}
                       onChange={setField('countries')}
                     />
-                    <Text as="p" tone="subdued" variant="bodySm">
-                      Members must match at least one selection in each group you filter by. Leave a group unchecked
-                      to apply no filter for that category.
-                    </Text>
                   </BlockStack>
                 </Box>
               </Collapsible>
@@ -510,13 +507,16 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
             <Divider />
             <div style={sectionLabelStyle}>Collection restriction</div>
             <Checkbox
-              label="Restrict to specific collections"
-              helpText="Otherwise the discount applies across your whole catalogue."
+              label="Restrict to specific collections — optional"
               checked={form.restrictCollections}
               onChange={setField('restrictCollections')}
             />
             {form.restrictCollections && (
               <BlockStack gap="200">
+                <Text as="p" tone="subdued" variant="bodySm">
+                  Select the collections you want this discount to apply to. Leave unchecked to apply across your
+                  full catalogue.
+                </Text>
                 {selectedCollections.length > 0 && (
                   <InlineStack gap="200">
                     {selectedCollections.map((c) => (
