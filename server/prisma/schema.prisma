@@ -83,6 +83,11 @@ model Campaign {
   // slug. Null until the WP-side create call succeeds (never blocks
   // campaign creation — see routes/campaigns.mjs).
   wpPostId              Int?
+
+  // Set once the low-inventory alert email has been sent (live inventory
+  // <= 20). Never reset — one email per campaign lifetime. See
+  // routes/redemptions.mjs.
+  limitAlertSent        Boolean      @default(false)
 }
 
 model Redemption {

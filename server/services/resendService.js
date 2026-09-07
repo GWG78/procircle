@@ -81,4 +81,28 @@ async function sendCodeEmail({
   }
 }
 
-export { sendEmail, sendCodeEmail };
+/**
+ * Emails a brand's contact when a campaign's live inventory (claimed but
+ * not yet redeemed codes) drops to the alert threshold. Never throws —
+ * mirrors sendCodeEmail's failure handling — the caller (routes/
+ * redemptions.mjs) already isolates this in its own try/catch, but keeping
+ * sendEmail's own never-throw contract here too means a Resend outage never
+ * risks the redemption response either way.
+ */
+async function sendCampaignLimitAlertEmail({ to, campaignName, liveInventory, shopDomain }) {
+  const html = `
+    <p>Your campaign <strong>${campaignName}</strong> has <strong>${liveInventory} discounts not yet used</strong>.</p>
+    <p>Would you like to increase the discount cap limit?</p>
+    <p><a href="https://admin.shopify.com/store/${shopDomain}/apps/${process.env.SHOPIFY_APP_HANDLE}">Open ProCircle</a></p>
+  `;
+
+  const sent = await sendEmail(to, "Your ProCircle campaign is running low", html);
+
+  if (!sent) {
+    console.error(
+      `[ALERT] sendCampaignLimitAlertEmail: ${to} will NOT receive the low-inventory alert. Campaign: ${campaignName}.`
+    );
+  }
+}
+
+export { sendEmail, sendCodeEmail, sendCampaignLimitAlertEmail };

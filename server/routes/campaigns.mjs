@@ -150,15 +150,20 @@ function groupFiltersByType(filters) {
  * since it has no filterType to share with the other campaign.
  *
  * Returns { id, name } of the first conflicting campaign found, or null.
+ *
+ * Accepts an optional `client` (a $transaction callback's `tx`) so callers
+ * that need the check to roll back alongside other writes — e.g. the
+ * campaign edit endpoint reverting a just-applied filter change — can run
+ * it inside their own transaction instead of against the top-level `prisma`.
  */
-async function checkAudienceConflict(campaignId, shopId) {
-  const campaign = await prisma.campaign.findUnique({
+async function checkAudienceConflict(campaignId, shopId, client = prisma) {
+  const campaign = await client.campaign.findUnique({
     where: { id: campaignId },
     include: { filters: true },
   });
   if (!campaign) return null;
 
-  const otherActiveCampaigns = await prisma.campaign.findMany({
+  const otherActiveCampaigns = await client.campaign.findMany({
     where: {
       shopId,
       id: { not: campaignId },
@@ -501,6 +506,124 @@ function includeForShapedCampaign() {
     redemptions: { select: { status: true, shopifyOrderId: true, orderAmount: true } },
   };
 }
+
+/**
+ * ===========================================================
+ * PUT /api/campaigns/:id?shop=...
+ *
+ * Edits a campaign in place. Only `name`, `roles`, `regions`, and
+ * `maxRedemptions` are accepted — discountValue and collection targeting
+ * are fixed at creation (they're baked into the Shopify discount itself)
+ * and are ignored here even if sent. A key is only touched when present
+ * in the body: `roles`/`regions` (arrays) replace that filterType's
+ * CampaignFilter rows entirely, so the frontend only needs to send the
+ * fields that actually changed.
+ *
+ * If the campaign is currently active and roles/regions changed, this
+ * re-runs the same audience-conflict check /resume uses, inside the same
+ * transaction as the filter swap — a conflict rolls back the edit and
+ * returns 409, the same shape /resume returns.
+ * ===========================================================
+ */
+router.put("/:id", verifyShopifyAuth, async (req, res) => {
+  try {
+    const shop = req.shopifyShop;
+    const campaignId = Number(req.params.id);
+    if (isNaN(campaignId)) {
+      return res.status(400).json({ success: false, error: "Invalid campaign id" });
+    }
+
+    const campaign = await findOwnedCampaign(campaignId, shop.id);
+    if (!campaign) {
+      return res.status(404).json({ success: false, error: "Campaign not found" });
+    }
+    if (campaign.status === "ended") {
+      return res.status(400).json({ success: false, error: "Ended campaigns can't be edited" });
+    }
+
+    const { name, roles, regions, maxRedemptions } = req.body || {};
+    const data = {};
+
+    if (name !== undefined) {
+      if (typeof name !== "string" || !name.trim()) {
+        return res.status(400).json({ success: false, error: "name must be a non-empty string" });
+      }
+      data.name = name.trim();
+    }
+
+    if (maxRedemptions !== undefined) {
+      if (maxRedemptions === null || maxRedemptions === "") {
+        data.maxRedemptions = null;
+      } else {
+        const numericMaxRedemptions = Number(maxRedemptions);
+        if (isNaN(numericMaxRedemptions) || numericMaxRedemptions <= 0) {
+          return res.status(400).json({ success: false, error: "maxRedemptions must be a positive number" });
+        }
+        data.maxRedemptions = numericMaxRedemptions;
+      }
+    }
+
+    const cleanRoles = Array.isArray(roles)
+      ? roles.filter((v) => typeof v === "string").map((v) => v.trim())
+      : null;
+    const cleanRegions = Array.isArray(regions)
+      ? regions.filter((v) => typeof v === "string").map((v) => v.trim())
+      : null;
+    const filtersChanged = cleanRoles !== null || cleanRegions !== null;
+
+    try {
+      const updated = await prisma.$transaction(async (tx) => {
+        if (Object.keys(data).length) {
+          await tx.campaign.update({ where: { id: campaignId }, data });
+        }
+
+        if (cleanRoles !== null) {
+          await tx.campaignFilter.deleteMany({ where: { campaignId, filterType: "role" } });
+          if (cleanRoles.length) {
+            await tx.campaignFilter.createMany({
+              data: cleanRoles.map((value) => ({ campaignId, filterType: "role", value })),
+            });
+          }
+        }
+
+        if (cleanRegions !== null) {
+          await tx.campaignFilter.deleteMany({ where: { campaignId, filterType: "country" } });
+          if (cleanRegions.length) {
+            await tx.campaignFilter.createMany({
+              data: cleanRegions.map((value) => ({ campaignId, filterType: "country", value })),
+            });
+          }
+        }
+
+        if (campaign.status === "active" && filtersChanged) {
+          const conflict = await checkAudienceConflict(campaignId, shop.id, tx);
+          if (conflict) {
+            throw Object.assign(new Error("audience conflict"), { isConflict: true, conflict });
+          }
+        }
+
+        return tx.campaign.findUnique({ where: { id: campaignId }, include: includeForShapedCampaign() });
+      });
+
+      res.json({
+        success: true,
+        campaign: { ...shapeCampaign(updated), audienceSize: await countMatchingMembers(updated.filters) },
+      });
+    } catch (err) {
+      if (err.isConflict) {
+        return res.status(409).json({
+          error: "conflict",
+          message: `This campaign conflicts with '${err.conflict.name}'. Pause or end that campaign first, or adjust the audience filters before saving.`,
+          conflictingCampaign: err.conflict,
+        });
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error("❌ Error editing campaign:", err);
+    res.status(500).json({ success: false, error: "Failed to edit campaign" });
+  }
+});
 
 /**
  * ===========================================================

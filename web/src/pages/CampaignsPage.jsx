@@ -568,6 +568,159 @@ function EndCampaignModal({ campaign, onClose, onEnded, onToastError }) {
 }
 
 /* ============================================================
+   Edit campaign modal
+   ============================================================ */
+const EMPTY_EDIT_FORM = { name: '', maxRedemptions: '', roles: [], countries: [] }
+
+function filtersToEditForm(campaign) {
+  return {
+    name: campaign.name,
+    maxRedemptions: campaign.maxRedemptions != null ? String(campaign.maxRedemptions) : '',
+    roles: campaign.filters.filter((f) => f.filterType === 'role').map((f) => f.value),
+    countries: campaign.filters.filter((f) => f.filterType === 'country').map((f) => f.value),
+  }
+}
+
+function sameValues(a, b) {
+  if (a.length !== b.length) return false
+  const sortedA = [...a].sort()
+  const sortedB = [...b].sort()
+  return sortedA.every((v, i) => v === sortedB[i])
+}
+
+function EditCampaignModal({ campaign, collections, onClose, onSaved }) {
+  const shopify = useAppBridge()
+  const [form, setForm] = useState(EMPTY_EDIT_FORM)
+  const [initial, setInitial] = useState(EMPTY_EDIT_FORM)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!campaign) return
+    const next = filtersToEditForm(campaign)
+    setForm(next)
+    setInitial(next)
+    setError('')
+  }, [campaign])
+
+  const setField = useCallback((key) => (value) => setForm((f) => ({ ...f, [key]: value })), [])
+
+  const handleSubmit = useCallback(async () => {
+    setError('')
+
+    if (!form.name.trim()) {
+      setError('Campaign name is required.')
+      return
+    }
+    if (form.maxRedemptions && (isNaN(Number(form.maxRedemptions)) || Number(form.maxRedemptions) <= 0)) {
+      setError('Max total redemptions must be a positive number.')
+      return
+    }
+
+    const payload = {}
+    if (form.name.trim() !== initial.name) payload.name = form.name.trim()
+    if (form.maxRedemptions !== initial.maxRedemptions) {
+      payload.maxRedemptions = form.maxRedemptions ? Number(form.maxRedemptions) : null
+    }
+    if (!sameValues(form.roles, initial.roles)) payload.roles = form.roles
+    if (!sameValues(form.countries, initial.countries)) payload.regions = form.countries
+
+    if (Object.keys(payload).length === 0) {
+      onClose()
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const token = await shopify.idToken()
+      const res = await fetch(`/api/campaigns/${campaign.id}?shop=${shop}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+
+      if (res.status === 409) {
+        setError(data.message || 'Audience conflict — resolve it before saving.')
+        return
+      }
+      if (!data.success) {
+        setError(data.error || 'Failed to save changes.')
+        return
+      }
+
+      onSaved(data.campaign)
+    } catch {
+      setError('Failed to save changes.')
+    } finally {
+      setSubmitting(false)
+    }
+  }, [form, initial, campaign, onSaved, onClose, shopify])
+
+  return (
+    <Modal
+      open={!!campaign}
+      onClose={onClose}
+      title={`Edit "${campaign?.name}"`}
+      primaryAction={{ content: 'Save changes', onAction: handleSubmit, loading: submitting }}
+      secondaryActions={[{ content: 'Cancel', onAction: onClose, disabled: submitting }]}
+    >
+      <Modal.Section>
+        <BlockStack gap="400">
+          {error && <Banner tone="critical">{error}</Banner>}
+
+          <FormLayout>
+            <TextField
+              label="Campaign name"
+              value={form.name}
+              onChange={setField('name')}
+              autoComplete="off"
+              requiredIndicator
+            />
+            <TextField
+              label="Max total redemptions"
+              type="number"
+              min={1}
+              placeholder="Unlimited"
+              value={form.maxRedemptions}
+              onChange={setField('maxRedemptions')}
+              autoComplete="off"
+            />
+
+            <Divider />
+            <ChoiceList
+              title="Roles"
+              allowMultiple
+              choices={ROLE_OPTIONS}
+              selected={form.roles}
+              onChange={setField('roles')}
+            />
+            <ChoiceList
+              title="Countries"
+              allowMultiple
+              choices={COUNTRY_OPTIONS}
+              selected={form.countries}
+              onChange={setField('countries')}
+            />
+
+            <Divider />
+            <Text variant="headingSm" as="h3">
+              Fixed at creation
+            </Text>
+            <Text as="p" tone="subdued" variant="bodySm">
+              These can't be changed after a campaign is created.
+            </Text>
+            <Text as="p">Discount: {campaign?.discountValue}%</Text>
+            <Text as="p">Collection: {campaign && collectionSummary(campaign, collections)}</Text>
+          </FormLayout>
+        </BlockStack>
+      </Modal.Section>
+    </Modal>
+  )
+}
+
+/* ============================================================
    Campaigns list — each campaign is a bordered card split into a left
    info zone and a right stats/actions zone by a vertical divider. Column
    headers for the right zone's stats repeat inside every card, above
@@ -576,10 +729,11 @@ function EndCampaignModal({ campaign, onClose, onEnded, onToastError }) {
 const LEFT_ZONE_FLEX = '3 3 0'
 const RIGHT_ZONE_FLEX = '2 2 0'
 
-function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested, onCopyLink, loading }) {
+function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested, onEditRequested, onCopyLink, loading }) {
   const canPause = campaign.status === 'active' || campaign.status === 'cap_reached' || campaign.status === 'draft'
   const canResume = campaign.status === 'paused'
   const canEnd = campaign.status !== 'ended'
+  const canEdit = campaign.status !== 'ended'
 
   return (
     <Card padding="0">
@@ -640,6 +794,11 @@ function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested,
           </div>
 
           <InlineStack gap="200" align="end">
+            {canEdit && (
+              <Button size="slim" onClick={() => onEditRequested(campaign)}>
+                Edit
+              </Button>
+            )}
             {canPause && (
               <Button size="slim" loading={loading} onClick={() => onPauseResume(campaign, 'pause')}>
                 Pause
@@ -662,7 +821,7 @@ function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested,
   )
 }
 
-function CampaignsList({ campaigns, collections, onPauseResume, onEndRequested, onCopyLink, actionLoadingId }) {
+function CampaignsList({ campaigns, collections, onPauseResume, onEndRequested, onEditRequested, onCopyLink, actionLoadingId }) {
   return (
     <BlockStack gap="300">
       {campaigns.map((campaign) => (
@@ -672,6 +831,7 @@ function CampaignsList({ campaigns, collections, onPauseResume, onEndRequested, 
           collections={collections}
           onPauseResume={onPauseResume}
           onEndRequested={onEndRequested}
+          onEditRequested={onEditRequested}
           onCopyLink={onCopyLink}
           loading={actionLoadingId === campaign.id}
         />
@@ -689,6 +849,7 @@ export default function CampaignsPage({ onGoToSettings }) {
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [endingCampaign, setEndingCampaign] = useState(null)
+  const [editingCampaign, setEditingCampaign] = useState(null)
   const [actionLoadingId, setActionLoadingId] = useState(null)
   const [toast, setToast] = useState(null)
   const shopify = useAppBridge()
@@ -790,6 +951,12 @@ export default function CampaignsPage({ onGoToSettings }) {
     setToast({ message, error: true })
   }, [])
 
+  const handleSaved = useCallback((updatedCampaign) => {
+    setCampaigns((prev) => prev.map((c) => (c.id === updatedCampaign.id ? updatedCampaign : c)))
+    setEditingCampaign(null)
+    setToast({ message: 'Campaign updated', error: false })
+  }, [])
+
   const hasCampaigns = campaigns.length > 0
   const activeCount = campaigns.filter((c) => c.status === 'active' || c.status === 'cap_reached').length
 
@@ -822,6 +989,7 @@ export default function CampaignsPage({ onGoToSettings }) {
             collections={collections}
             onPauseResume={handlePauseResume}
             onEndRequested={setEndingCampaign}
+            onEditRequested={setEditingCampaign}
             onCopyLink={handleCopyLink}
             actionLoadingId={actionLoadingId}
           />
@@ -841,6 +1009,13 @@ export default function CampaignsPage({ onGoToSettings }) {
         onClose={() => setEndingCampaign(null)}
         onEnded={handleEnded}
         onToastError={handleToastError}
+      />
+
+      <EditCampaignModal
+        campaign={editingCampaign}
+        collections={collections}
+        onClose={() => setEditingCampaign(null)}
+        onSaved={handleSaved}
       />
 
       {toast && (

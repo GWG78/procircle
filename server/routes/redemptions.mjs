@@ -4,7 +4,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { PrismaClient } from "@prisma/client";
 import { getOffersForMember, checkEligibility } from "../services/eligibilityService.js";
 import { getOrCreateCustomer, addMemberToCampaignDiscount } from "../services/shopifyCustomerService.js";
-import { sendCodeEmail } from "../services/resendService.js";
+import { sendCodeEmail, sendCampaignLimitAlertEmail } from "../services/resendService.js";
 import { getOrFetchShopName } from "../services/shopService.js";
 import { logDataAccess } from "../utils/accessLog.js";
 
@@ -182,6 +182,39 @@ router.post("/request", ipLimiter, emailLimiter, async (req, res) => {
       });
     } catch (err) {
       console.error(`❌ Failed to mark redemption ${redemption.id} as confirmed:`, err);
+    }
+
+    // Best-effort low-inventory alert to the brand — fully isolated so a
+    // failure here never affects the member's response. `campaign` was
+    // already loaded above with `shop` included. One email per campaign
+    // lifetime (limitAlertSent is never reset), and only for capped
+    // campaigns — an uncapped campaign has no "running low" to warn about.
+    try {
+      if (campaign.maxRedemptions != null && !campaign.limitAlertSent) {
+        const liveInventory = await prisma.redemption.count({
+          where: { campaignId: campaign.id, status: "confirmed", shopifyOrderId: null },
+        });
+
+        if (liveInventory <= 20) {
+          const settings = await prisma.shopSettings.findUnique({ where: { shopId: campaign.shopId } });
+
+          if (settings?.contactEmail) {
+            await sendCampaignLimitAlertEmail({
+              to: settings.contactEmail,
+              campaignName: campaign.name,
+              liveInventory,
+              shopDomain: campaign.shop.shopDomain,
+            });
+
+            await prisma.campaign.update({
+              where: { id: campaign.id },
+              data: { limitAlertSent: true },
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[ALERT] Campaign limit alert failed for campaign ${campaign.id}:`, err);
     }
 
     return res.status(200).json({
