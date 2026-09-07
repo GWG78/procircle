@@ -1,6 +1,33 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { Card, FormLayout, TextField, Button, Toast, Text, BlockStack, DropZone, Thumbnail } from '@shopify/polaris'
+import {
+  Card,
+  FormLayout,
+  TextField,
+  Button,
+  Toast,
+  Text,
+  BlockStack,
+  InlineStack,
+  DropZone,
+  Thumbnail,
+  Icon,
+} from '@shopify/polaris'
+import { ImageIcon } from '@shopify/polaris-icons'
 import { useAppBridge } from '@shopify/app-bridge-react'
+
+const sectionLabelStyle = {
+  textTransform: 'uppercase',
+  fontSize: '0.75rem',
+  letterSpacing: '0.05em',
+  fontWeight: 600,
+  color: 'var(--p-color-text-secondary)',
+}
+
+const requiredAsterisk = (
+  <Text as="span" tone="critical">
+    {' *'}
+  </Text>
+)
 
 const shop = new URLSearchParams(window.location.search).get('shop') || ''
 
@@ -18,8 +45,19 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
  * SetupPage, which must not let a merchant through with an incomplete
  * profile). SettingsPage leaves it off — editing just the logo, for
  * instance, shouldn't be blocked by an unrelated missing field.
+ *
+ * footerNote/submitIcon are optional and only passed by SetupPage — they
+ * swap the in-card Save button for a footer row (caption + Save) below the
+ * card. Omitting them (as SettingsPage does) keeps the plain in-card button
+ * untouched.
  */
-export default function BrandProfileForm({ submitLabel, onSaveSuccess, requireComplete = false }) {
+export default function BrandProfileForm({
+  submitLabel,
+  submitIcon,
+  footerNote,
+  onSaveSuccess,
+  requireComplete = false,
+}) {
   const shopify = useAppBridge()
   const [loaded, setLoaded] = useState(false)
   const [description, setDescription] = useState('')
@@ -74,8 +112,22 @@ export default function BrandProfileForm({ submitLabel, onSaveSuccess, requireCo
     setEmailError('')
 
     setSaving(true)
+
+    // TEMPORARY diagnostic — isolates token acquisition from the rest of
+    // the save flow and logs the real failure reason instead of letting it
+    // fall into the generic catch below silently. Remove once the
+    // "missing session token" bug is confirmed fixed.
+    let token
     try {
-      const token = await shopify.idToken()
+      token = await shopify.idToken()
+    } catch (err) {
+      console.error('[BrandProfileForm] shopify.idToken() failed:', err)
+      setToast({ message: 'Failed to save settings', error: true })
+      setSaving(false)
+      return
+    }
+
+    try {
       const res = await fetch(`/api/settings?shop=${shop}`, {
         method: 'POST',
         credentials: 'include',
@@ -95,7 +147,8 @@ export default function BrandProfileForm({ submitLabel, onSaveSuccess, requireCo
 
       setToast({ message: 'Settings saved!', error: false })
       onSaveSuccess?.(data.settings)
-    } catch {
+    } catch (err) {
+      console.error('[BrandProfileForm] save request failed:', err)
       setToast({ message: 'Failed to save settings', error: true })
     } finally {
       setSaving(false)
@@ -107,8 +160,19 @@ export default function BrandProfileForm({ submitLabel, onSaveSuccess, requireCo
     if (!file) return
     setLogoFile(file)
     setUploadingLogo(true)
+
+    // TEMPORARY diagnostic — see handleSave above for why this is split out.
+    let token
     try {
-      const token = await shopify.idToken()
+      token = await shopify.idToken()
+    } catch (err) {
+      console.error('[BrandProfileForm] shopify.idToken() failed (logo upload):', err)
+      setToast({ message: 'Failed to upload logo', error: true })
+      setUploadingLogo(false)
+      return
+    }
+
+    try {
       const formData = new FormData()
       formData.append('logo', file)
       const res = await fetch(`/api/settings/logo?shop=${shop}`, {
@@ -118,9 +182,10 @@ export default function BrandProfileForm({ submitLabel, onSaveSuccess, requireCo
         body: formData,
       })
       const data = await res.json()
-      if (!data.success) throw new Error()
+      if (!data.success) throw new Error(data.error || 'Logo upload failed')
       setToast({ message: 'Logo uploaded!', error: false })
-    } catch {
+    } catch (err) {
+      console.error('[BrandProfileForm] logo upload request failed:', err)
       setToast({ message: 'Failed to upload logo', error: true })
     } finally {
       setUploadingLogo(false)
@@ -143,66 +208,98 @@ export default function BrandProfileForm({ submitLabel, onSaveSuccess, requireCo
       <Card>
         <BlockStack gap="400">
           <FormLayout>
-            <Text variant="headingSm" as="h3">Brand logo</Text>
+            <div style={sectionLabelStyle}>Brand logo</div>
             <DropZone accept="image/*" type="image" onDrop={handleLogoDrop} allowMultiple={false}>
-              {logoFile ? (
-                <div style={{ padding: '1rem' }}>
-                  <Thumbnail source={window.URL.createObjectURL(logoFile)} alt="Logo preview" size="large" />
+              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', padding: '1rem' }}>
+                <div
+                  style={{
+                    width: '88px',
+                    height: '88px',
+                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: '8px',
+                    background: 'var(--p-color-bg-surface-secondary)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {logoFile ? (
+                    <Thumbnail source={window.URL.createObjectURL(logoFile)} alt="Logo preview" size="large" />
+                  ) : (
+                    <Icon source={ImageIcon} tone="subdued" />
+                  )}
                 </div>
-              ) : (
-                <DropZone.FileUpload actionHint="Accepts .jpg, .png, .svg" />
-              )}
+                <BlockStack gap="200">
+                  <Text as="p" tone="subdued" variant="bodySm">
+                    Square or horizontal, at least 400px wide, on a transparent or white background.
+                  </Text>
+                  <InlineStack gap="200" blockAlign="center">
+                    <Button>Add image</Button>
+                    <Text as="span" tone="subdued" variant="bodySm">.jpg .png .svg</Text>
+                  </InlineStack>
+                </BlockStack>
+              </div>
             </DropZone>
             {uploadingLogo && <Text as="p" tone="subdued">Uploading…</Text>}
           </FormLayout>
 
           <FormLayout>
             <TextField
-              label="Brand description"
+              label={<>Brand description{requiredAsterisk}</>}
               value={description}
               onChange={setDescription}
               multiline={4}
               maxLength={BRAND_DESCRIPTION_MAX_LENGTH}
               showCharacterCount
               autoComplete="off"
-              requiredIndicator
-              placeholder="e.g. We make technical ski and outdoor apparel designed for guides and instructors who spend all day outside."
+              placeholder="We make technical ski and outdoor apparel designed for guides and instructors who spend all day outside."
               helpText="A brief description of your brand and what you sell."
             />
           </FormLayout>
 
           <FormLayout>
-            <Text variant="headingSm" as="h3">Contact</Text>
+            <div style={sectionLabelStyle}>Contact</div>
             <FormLayout.Group>
               <TextField
-                label="Contact name"
+                label={<>Contact name{requiredAsterisk}</>}
                 value={contactName}
                 onChange={setContactName}
                 autoComplete="off"
-                requiredIndicator
+                placeholder="Full name"
+                helpText="Who we contact about campaign limits."
               />
               <TextField
-                label="Contact email"
+                label={<>Contact email{requiredAsterisk}</>}
                 type="email"
                 value={contactEmail}
                 onChange={handleEmailChange}
                 autoComplete="off"
-                requiredIndicator
+                placeholder="name@brand.com"
+                helpText="Kept private, never shown to pros."
                 error={emailError}
               />
             </FormLayout.Group>
-            <Text as="p" tone="subdued" variant="bodySm">
-              We'll use this to email you if a campaign is approaching its redemption limit.
-            </Text>
           </FormLayout>
 
-          <div>
-            <Button variant="primary" loading={saving} disabled={!loaded || !canSubmit} onClick={handleSave}>
-              {submitLabel}
-            </Button>
-          </div>
+          {!footerNote && (
+            <div>
+              <Button variant="primary" loading={saving} disabled={!loaded || !canSubmit} onClick={handleSave}>
+                {submitLabel}
+              </Button>
+            </div>
+          )}
         </BlockStack>
       </Card>
+
+      {footerNote && (
+        <InlineStack align="space-between" blockAlign="center" gap="400">
+          <Text as="p" tone="subdued" variant="bodySm">{footerNote}</Text>
+          <Button variant="primary" icon={submitIcon} loading={saving} disabled={!loaded || !canSubmit} onClick={handleSave}>
+            {submitLabel}
+          </Button>
+        </InlineStack>
+      )}
 
       {toast && (
         <Toast
