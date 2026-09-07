@@ -11,6 +11,8 @@ import {
   DropZone,
   Thumbnail,
   Icon,
+  Banner,
+  Box,
 } from '@shopify/polaris'
 import { ImageIcon } from '@shopify/polaris-icons'
 import { useAppBridge } from '@shopify/app-bridge-react'
@@ -198,12 +200,12 @@ export default function BrandProfileForm({
 
   return (
     <BlockStack gap="400">
-      <Card>
+      <Banner tone="info">
         <Text as="p">
           Your logo and brand description are shown to members browsing your pro deals. Your contact details are
           kept private — we'll only use them to let you know if a campaign is approaching its redemption limit.
         </Text>
-      </Card>
+      </Banner>
 
       <Card>
         <BlockStack gap="400">
@@ -211,24 +213,32 @@ export default function BrandProfileForm({
             <div style={sectionLabelStyle}>Brand logo</div>
             <DropZone accept="image/*" type="image" onDrop={handleLogoDrop} allowMultiple={false}>
               <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', padding: '1rem' }}>
-                <div
-                  style={{
-                    width: '88px',
-                    height: '88px',
-                    flexShrink: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderRadius: '8px',
-                    background: 'var(--p-color-bg-surface-secondary)',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {logoFile ? (
-                    <Thumbnail source={window.URL.createObjectURL(logoFile)} alt="Logo preview" size="large" />
-                  ) : (
-                    <Icon source={ImageIcon} tone="subdued" />
-                  )}
+                <div style={{ flexShrink: 0 }}>
+                  <Box
+                    background="bg-surface-secondary"
+                    borderColor="border"
+                    borderWidth="025"
+                    borderRadius="200"
+                    width="88px"
+                    minHeight="88px"
+                  >
+                    <div
+                      style={{
+                        width: '88px',
+                        height: '88px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {logoFile ? (
+                        <Thumbnail source={window.URL.createObjectURL(logoFile)} alt="Logo preview" size="large" />
+                      ) : (
+                        <Icon source={ImageIcon} tone="subdued" />
+                      )}
+                    </div>
+                  </Box>
                 </div>
                 <BlockStack gap="200">
                   <Text as="p" tone="subdued" variant="bodySm">
