@@ -12,7 +12,6 @@ import {
   Modal,
   FormLayout,
   TextField,
-  Select,
   Checkbox,
   ChoiceList,
   Banner,
@@ -20,11 +19,25 @@ import {
   Divider,
   Tooltip,
   Spinner,
+  Box,
+  Tag,
+  Popover,
+  ActionList,
+  Icon,
 } from '@shopify/polaris'
-import { ChevronDownIcon, ChevronUpIcon, ClipboardIcon } from '@shopify/polaris-icons'
+import { ChevronDownIcon, ChevronUpIcon, CalendarIcon, PlusIcon } from '@shopify/polaris-icons'
 import { useAppBridge } from '@shopify/app-bridge-react'
 
 const shop = new URLSearchParams(window.location.search).get('shop') || ''
+
+// Matches the eyebrow/section-label treatment on SetupPage/BrandProfileForm.
+const sectionLabelStyle = {
+  textTransform: 'uppercase',
+  fontSize: '0.75rem',
+  letterSpacing: '0.05em',
+  fontWeight: 600,
+  color: 'var(--p-color-text-secondary)',
+}
 
 const ROLE_OPTIONS = [
   { value: 'ski_instructor', label: 'Ski Instructor' },
@@ -49,13 +62,6 @@ const COUNTRY_OPTIONS = [
   { value: 'NZ', label: 'New Zealand' },
   { value: 'AU', label: 'Australia' },
   { value: 'JP', label: 'Japan' },
-]
-
-const MAX_PER_MEMBER_OPTIONS = [
-  { label: '1', value: '1' },
-  { label: '2', value: '2' },
-  { label: '5', value: '5' },
-  { label: 'Unlimited', value: 'unlimited' },
 ]
 
 const STATUS_LABELS = {
@@ -98,6 +104,24 @@ function formatRevenue(amount) {
   return `$${Number(amount || 0).toFixed(2)}`
 }
 
+function formatDate(dateStr) {
+  return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+// "cap_reached", "paused", and "ended" already have their own Badge tone/
+// label (see STATUS_TONES/STATUS_LABELS) — this line is only for the two
+// states the badge alone doesn't fully explain: whether an active campaign
+// is actually live yet, and when a draft goes live.
+function statusLine(campaign) {
+  if (campaign.status === 'active') {
+    return 'Live — members can now access this deal on procircle.io'
+  }
+  if (campaign.status === 'draft') {
+    return `Draft — goes live on ${formatDate(campaign.startsAt)}`
+  }
+  return null
+}
+
 /* ============================================================
    Create campaign modal
    ============================================================ */
@@ -108,6 +132,7 @@ const EMPTY_FORM = {
   validForDays: '30',
   maxRedemptions: '',
   maxRedemptionsPerUser: '1',
+  maxRedemptionsPerUserUnlimited: false,
   roles: [],
   countries: [],
   restrictCollections: false,
@@ -126,6 +151,7 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
   const [refineOpen, setRefineOpen] = useState(false)
   const [audienceCount, setAudienceCount] = useState(null)
   const [audienceLoading, setAudienceLoading] = useState(false)
+  const [collectionPickerOpen, setCollectionPickerOpen] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -134,6 +160,7 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
       setProfileIncomplete(false)
       setActiveFilters(EMPTY_ACTIVE_FILTERS)
       setRefineOpen(false)
+      setCollectionPickerOpen(false)
 
       shopify
         .idToken()
@@ -252,6 +279,15 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
       return
     }
 
+    const maxPerMemberNum = Number(form.maxRedemptionsPerUser)
+    if (
+      !form.maxRedemptionsPerUserUnlimited &&
+      (!form.maxRedemptionsPerUser || isNaN(maxPerMemberNum) || maxPerMemberNum <= 0)
+    ) {
+      setError('Max per member must be a positive number.')
+      return
+    }
+
     const filters = [
       ...form.roles.map((value) => ({ filterType: 'role', value })),
       ...form.countries.map((value) => ({ filterType: 'country', value })),
@@ -265,8 +301,7 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
       startsAt: form.startDate ? `${form.startDate}T00:00:00Z` : null,
       validForDays: validForDaysNum,
       maxRedemptions: form.maxRedemptions ? Number(form.maxRedemptions) : null,
-      maxRedemptionsPerUser:
-        form.maxRedemptionsPerUser === 'unlimited' ? null : Number(form.maxRedemptionsPerUser),
+      maxRedemptionsPerUser: form.maxRedemptionsPerUserUnlimited ? null : maxPerMemberNum,
       filters,
     }
 
@@ -295,13 +330,18 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
     }
   }, [form, onCreated, shopify])
 
-  const shownCollections = collections.length
+  const selectedCollections = form.collectionIds.map((id) => collections.find((c) => c.id === id)).filter(Boolean)
+  const availableCollections = collections.filter((c) => !form.collectionIds.includes(c.id))
+
+  const matchLabel =
+    audienceCount !== null ? `~${audienceCount} member${audienceCount === 1 ? '' : 's'} match` : 'Counting…'
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       title="Create campaign"
+      titleHidden
       primaryAction={{
         content: 'Create campaign',
         onAction: handleSubmit,
@@ -311,6 +351,16 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
     >
       <Modal.Section>
         <BlockStack gap="400">
+          <BlockStack gap="100">
+            <div style={sectionLabelStyle}>Pro deal</div>
+            <Text as="h2" variant="headingMd">
+              Create campaign
+            </Text>
+            <Text as="p" tone="subdued" variant="bodySm">
+              Set the discount, dates and limits. Nothing goes live until you publish it.
+            </Text>
+          </BlockStack>
+
           {error && (
             <Banner
               tone="critical"
@@ -331,11 +381,11 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
           )}
 
           <FormLayout>
-            <Text variant="headingSm" as="h3">
-              Basic details
-            </Text>
+            <div style={sectionLabelStyle}>Basic details</div>
             <TextField
               label="Campaign name"
+              placeholder="Winter guide programme"
+              helpText="Shown to pros in their deal list."
               value={form.name}
               onChange={setField('name')}
               autoComplete="off"
@@ -346,6 +396,8 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
               type="number"
               min={1}
               suffix="%"
+              placeholder="40"
+              helpText="Applied to full-price items in the selected collections."
               value={form.discountValue}
               onChange={setField('discountValue')}
               autoComplete="off"
@@ -353,12 +405,11 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
             />
 
             <Divider />
-            <Text variant="headingSm" as="h3">
-              Dates & limits
-            </Text>
+            <div style={sectionLabelStyle}>Dates & limits</div>
             <TextField
               label="Campaign start date"
               type="date"
+              prefix={<Icon source={CalendarIcon} tone="subdued" />}
               helpText="Leave blank to start immediately. A future date shows as Draft until it arrives."
               value={form.startDate}
               onChange={setField('startDate')}
@@ -384,90 +435,127 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
                 onChange={setField('maxRedemptions')}
                 autoComplete="off"
               />
-              <Select
-                label="Max per member"
-                options={MAX_PER_MEMBER_OPTIONS}
-                value={form.maxRedemptionsPerUser}
-                onChange={setField('maxRedemptionsPerUser')}
-              />
+              <BlockStack gap="200">
+                <TextField
+                  label="Max per member"
+                  type="number"
+                  min={1}
+                  value={form.maxRedemptionsPerUser}
+                  onChange={setField('maxRedemptionsPerUser')}
+                  autoComplete="off"
+                  disabled={form.maxRedemptionsPerUserUnlimited}
+                />
+                <Checkbox
+                  label="Unlimited"
+                  checked={form.maxRedemptionsPerUserUnlimited}
+                  onChange={setField('maxRedemptionsPerUserUnlimited')}
+                />
+              </BlockStack>
             </FormLayout.Group>
 
             <Divider />
-
-            <InlineStack gap="200" blockAlign="center">
-              <Text as="span" tone="subdued" variant="bodySm">
-                {audienceLoading && audienceCount === null
-                  ? 'Counting matching members…'
-                  : audienceCount !== null
-                  ? `~${audienceCount} member${audienceCount === 1 ? '' : 's'} match`
-                  : ''}
-              </Text>
-              {audienceLoading && <Spinner size="small" />}
+            <InlineStack align="space-between" blockAlign="center">
+              <div style={sectionLabelStyle}>Audience</div>
+              <InlineStack gap="200" blockAlign="center">
+                <Tag>{matchLabel}</Tag>
+                {audienceLoading && <Spinner size="small" />}
+              </InlineStack>
             </InlineStack>
 
-            <div>
-              <Button
-                variant="tertiary"
-                icon={refineOpen ? ChevronUpIcon : ChevronDownIcon}
-                onClick={() => setRefineOpen((o) => !o)}
-              >
-                Refine audience (optional)
-              </Button>
-              {!refineOpen && (
-                <Text as="p" tone="subdued" variant="bodySm">
-                  Leave this closed to reach all verified members.
-                </Text>
-              )}
-            </div>
+            <Box borderColor="border" borderWidth="025" borderRadius="200" overflowX="hidden">
+              <Box background="bg-surface-secondary" padding="300">
+                <Button
+                  variant="tertiary"
+                  icon={refineOpen ? ChevronUpIcon : ChevronDownIcon}
+                  onClick={() => setRefineOpen((o) => !o)}
+                >
+                  Refine audience (optional)
+                </Button>
+                {!refineOpen && (
+                  <Text as="p" tone="subdued" variant="bodySm">
+                    Leave this closed to reach all verified members.
+                  </Text>
+                )}
+              </Box>
 
-            <Collapsible open={refineOpen} id="refine-audience">
-              <BlockStack gap="300">
-                <ChoiceList
-                  title="Roles"
-                  allowMultiple
-                  choices={roleChoices}
-                  selected={form.roles}
-                  onChange={setField('roles')}
-                />
-                <ChoiceList
-                  title="Countries"
-                  allowMultiple
-                  choices={countryChoices}
-                  selected={form.countries}
-                  onChange={setField('countries')}
-                />
-                <Text as="p" tone="subdued" variant="bodySm">
-                  Members must match at least one selection in each group you filter by. Leave a group unchecked to
-                  apply no filter for that category.
-                </Text>
-              </BlockStack>
-            </Collapsible>
+              <Collapsible open={refineOpen} id="refine-audience">
+                <Box padding="300">
+                  <BlockStack gap="300">
+                    <Text as="p" tone="subdued" variant="bodySm">
+                      Leave this closed to reach all verified members.
+                    </Text>
+                    <ChoiceList
+                      title="Roles"
+                      allowMultiple
+                      choices={roleChoices}
+                      selected={form.roles}
+                      onChange={setField('roles')}
+                    />
+                    <ChoiceList
+                      title="Countries"
+                      allowMultiple
+                      choices={countryChoices}
+                      selected={form.countries}
+                      onChange={setField('countries')}
+                    />
+                    <Text as="p" tone="subdued" variant="bodySm">
+                      Members must match at least one selection in each group you filter by. Leave a group unchecked
+                      to apply no filter for that category.
+                    </Text>
+                  </BlockStack>
+                </Box>
+              </Collapsible>
+            </Box>
 
             <Divider />
-            <Text variant="headingSm" as="h3">
-              Collection restriction
-            </Text>
+            <div style={sectionLabelStyle}>Collection restriction</div>
             <Checkbox
               label="Restrict to specific collections"
+              helpText="Otherwise the discount applies across your whole catalogue."
               checked={form.restrictCollections}
               onChange={setField('restrictCollections')}
             />
             {form.restrictCollections && (
               <BlockStack gap="200">
-                <Text as="p" tone="subdued" variant="bodySm">
-                  Showing {shownCollections} of {shownCollections} collections
-                </Text>
-                <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid var(--p-color-border)', borderRadius: '8px', padding: '0.5rem' }}>
-                  <ChoiceList
-                    allowMultiple
-                    titleHidden
-                    choices={collections.map((c) => ({
-                      value: c.id,
-                      label: `${c.title} (${c.productCount})`,
-                    }))}
-                    selected={form.collectionIds}
-                    onChange={setField('collectionIds')}
-                  />
+                {selectedCollections.length > 0 && (
+                  <InlineStack gap="200">
+                    {selectedCollections.map((c) => (
+                      <Tag
+                        key={c.id}
+                        onRemove={() => setField('collectionIds')(form.collectionIds.filter((id) => id !== c.id))}
+                      >
+                        {c.title}
+                      </Tag>
+                    ))}
+                  </InlineStack>
+                )}
+                <div>
+                  <Popover
+                    active={collectionPickerOpen}
+                    onClose={() => setCollectionPickerOpen(false)}
+                    activator={
+                      <Button
+                        variant="plain"
+                        icon={PlusIcon}
+                        onClick={() => setCollectionPickerOpen((o) => !o)}
+                        disabled={availableCollections.length === 0}
+                      >
+                        Add collection
+                      </Button>
+                    }
+                  >
+                    <ActionList
+                      allowFiltering
+                      filterLabel="Search collections"
+                      items={availableCollections.map((c) => ({
+                        content: `${c.title} (${c.productCount})`,
+                        onAction: () => {
+                          setField('collectionIds')([...form.collectionIds, c.id])
+                          setCollectionPickerOpen(false)
+                        },
+                      }))}
+                    />
+                  </Popover>
                 </div>
               </BlockStack>
             )}
@@ -729,7 +817,7 @@ function EditCampaignModal({ campaign, collections, onClose, onSaved }) {
 const LEFT_ZONE_FLEX = '3 3 0'
 const RIGHT_ZONE_FLEX = '2 2 0'
 
-function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested, onEditRequested, onCopyLink, loading }) {
+function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested, onEditRequested, loading }) {
   const canPause = campaign.status === 'active' || campaign.status === 'cap_reached' || campaign.status === 'draft'
   const canResume = campaign.status === 'paused'
   const canEnd = campaign.status !== 'ended'
@@ -747,6 +835,12 @@ function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested,
               <Badge tone={STATUS_TONES[campaign.status]}>{STATUS_LABELS[campaign.status] || campaign.status}</Badge>
             </InlineStack>
 
+            {statusLine(campaign) && (
+              <Text as="p" tone="subdued" variant="bodySm">
+                {statusLine(campaign)}
+              </Text>
+            )}
+
             <BlockStack gap="100">
               <Text as="p" tone="subdued" variant="bodySm">
                 Roles: {rolesSummary(campaign)}
@@ -758,14 +852,6 @@ function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested,
                 Collection: {collectionSummary(campaign, collections)}
               </Text>
             </BlockStack>
-
-            {campaign.discountLink && (
-              <div>
-                <Button icon={ClipboardIcon} onClick={() => onCopyLink(campaign)}>
-                  Copy discount link
-                </Button>
-              </div>
-            )}
           </BlockStack>
         </div>
 
@@ -821,7 +907,7 @@ function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested,
   )
 }
 
-function CampaignsList({ campaigns, collections, onPauseResume, onEndRequested, onEditRequested, onCopyLink, actionLoadingId }) {
+function CampaignsList({ campaigns, collections, onPauseResume, onEndRequested, onEditRequested, actionLoadingId }) {
   return (
     <BlockStack gap="300">
       {campaigns.map((campaign) => (
@@ -832,7 +918,6 @@ function CampaignsList({ campaigns, collections, onPauseResume, onEndRequested, 
           onPauseResume={onPauseResume}
           onEndRequested={onEndRequested}
           onEditRequested={onEditRequested}
-          onCopyLink={onCopyLink}
           loading={actionLoadingId === campaign.id}
         />
       ))}
@@ -895,11 +980,6 @@ export default function CampaignsPage({ onGoToSettings }) {
 
   const handleOpenCreate = useCallback(() => {
     setModalOpen(true)
-  }, [])
-
-  const handleCopyLink = useCallback((campaign) => {
-    navigator.clipboard?.writeText(campaign.discountLink)
-    setToast({ message: 'Discount link copied', error: false })
   }, [])
 
   const handlePauseResume = useCallback(
@@ -990,7 +1070,6 @@ export default function CampaignsPage({ onGoToSettings }) {
             onPauseResume={handlePauseResume}
             onEndRequested={setEndingCampaign}
             onEditRequested={setEditingCampaign}
-            onCopyLink={handleCopyLink}
             actionLoadingId={actionLoadingId}
           />
         </BlockStack>
