@@ -18,11 +18,18 @@ import { ImageIcon } from '@shopify/polaris-icons'
 import { useAppBridge } from '@shopify/app-bridge-react'
 
 const sectionLabelStyle = {
+  fontFamily: 'var(--font-mono)',
   textTransform: 'uppercase',
-  fontSize: '0.75rem',
-  letterSpacing: '0.05em',
-  fontWeight: 600,
-  color: 'var(--p-color-text-secondary)',
+  fontSize: 'var(--fs-eyebrow)',
+  letterSpacing: 'var(--tr-eyebrow)',
+  fontWeight: 'var(--fw-semibold)',
+  color: 'var(--text-muted)',
+}
+
+const footerCaptionStyle = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--fs-caption)',
+  color: 'var(--text-muted)',
 }
 
 const requiredAsterisk = (
@@ -212,7 +219,7 @@ export default function BrandProfileForm({
           <FormLayout>
             <div style={sectionLabelStyle}>Brand logo</div>
             <DropZone accept="image/*" type="image" onDrop={handleLogoDrop} allowMultiple={false}>
-              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', padding: '1rem' }}>
+              <div style={{ display: 'flex', gap: 'var(--space-6)', alignItems: 'center', padding: 'var(--space-6)' }}>
                 <div style={{ flexShrink: 0 }}>
                   <Box
                     background="bg-surface-secondary"
@@ -304,7 +311,7 @@ export default function BrandProfileForm({
 
       {footerNote && (
         <InlineStack align="space-between" blockAlign="center" gap="400">
-          <Text as="p" tone="subdued" variant="bodySm">{footerNote}</Text>
+          <span style={footerCaptionStyle}>{footerNote}</span>
           <Button variant="primary" icon={submitIcon} loading={saving} disabled={!loaded || !canSubmit} onClick={handleSave}>
             {submitLabel}
           </Button>

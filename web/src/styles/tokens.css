@@ -1,0 +1,54 @@
+:root {
+  /* Spacing */
+  --space-1: 2px;  --space-2: 4px;  --space-3: 6px;  --space-4: 8px;
+  --space-5: 12px; --space-6: 16px; --space-7: 20px; --space-8: 24px;
+  --space-9: 32px; --space-10: 40px; --space-11: 56px;
+
+  /* Typography */
+  --font-sans: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --fs-eyebrow: 12px;
+  --fs-body: 16px;
+  --fs-body-sm: 14px;
+  --fs-caption: 12px;
+  --fs-h2: 21px;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --lh-body: 1.5;
+  --tr-eyebrow: 2px;
+
+  /* Colour — ink */
+  --ink-800: #14181B;
+  --ink-500: #4A545B;
+  --ink-400: #6B767E;
+  --ink-200: #BAC2C7;
+  --ink-100: #DDE1E3;
+  --ink-050: #EDEFF0;
+
+  /* Colour — paper */
+  --paper-000: #FFFFFF;
+  --paper-050: #F8F7F5;
+  --paper-100: #F2F1ED;
+  --paper-200: #E7E5E0;
+  --paper-300: #D6D3CC;
+
+  /* Colour — spruce (brand) */
+  --spruce-900: #0C2B23;
+  --spruce-600: #1B4D3E;
+  --spruce-050: #EEF4F1;
+
+  /* Colour — semantic */
+  --text-primary: var(--ink-800);
+  --text-secondary: var(--ink-500);
+  --text-muted: var(--ink-400);
+  --text-brand: var(--spruce-600);
+  --border-subtle: var(--paper-200);
+  --border-default: var(--paper-300);
+  --bg-surface: var(--paper-000);
+  --bg-sunken: var(--paper-100);
+
+  /* Radius */
+  --radius-2: 5px;
+  --radius-3: 8px;
+  --radius-4: 12px;
+}

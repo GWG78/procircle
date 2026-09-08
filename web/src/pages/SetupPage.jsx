@@ -4,11 +4,12 @@ import { ArrowRightIcon } from '@shopify/polaris-icons'
 import BrandProfileForm from '../components/BrandProfileForm'
 
 const eyebrowStyle = {
+  fontFamily: 'var(--font-mono)',
   textTransform: 'uppercase',
-  fontSize: '0.75rem',
-  letterSpacing: '0.05em',
-  fontWeight: 600,
-  color: 'var(--p-color-text-secondary)',
+  fontSize: 'var(--fs-eyebrow)',
+  letterSpacing: 'var(--tr-eyebrow)',
+  fontWeight: 'var(--fw-semibold)',
+  color: 'var(--text-muted)',
 }
 
 /**

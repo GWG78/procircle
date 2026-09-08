@@ -19,24 +19,119 @@ import {
   Divider,
   Tooltip,
   Spinner,
-  Box,
   Tag,
   Popover,
   ActionList,
   Icon,
 } from '@shopify/polaris'
-import { ChevronDownIcon, ChevronUpIcon, CalendarIcon, PlusIcon } from '@shopify/polaris-icons'
+import { ChevronRightIcon, CalendarIcon, PlusIcon } from '@shopify/polaris-icons'
 import { useAppBridge } from '@shopify/app-bridge-react'
 
 const shop = new URLSearchParams(window.location.search).get('shop') || ''
 
-// Matches the eyebrow/section-label treatment on SetupPage/BrandProfileForm.
-const sectionLabelStyle = {
+// Shared design-token styles for the create campaign modal — see
+// web/src/styles/tokens.css for the underlying custom-property values.
+const eyebrowStyle = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--fs-eyebrow)',
+  fontWeight: 'var(--fw-medium)',
+  letterSpacing: 'var(--tr-eyebrow)',
   textTransform: 'uppercase',
-  fontSize: '0.75rem',
-  letterSpacing: '0.05em',
-  fontWeight: 600,
-  color: 'var(--p-color-text-secondary)',
+  color: 'var(--text-muted)',
+  margin: '0 0 var(--space-3) 0',
+}
+
+const modalTitleStyle = {
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--fs-h2)',
+  fontWeight: 'var(--fw-semibold)',
+  color: 'var(--text-primary)',
+  lineHeight: 1.2,
+  margin: '0 0 var(--space-3) 0',
+}
+
+const subtitleStyle = {
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--fs-body-sm)',
+  color: 'var(--text-secondary)',
+  margin: '0 0 var(--space-8) 0',
+}
+
+const sectionLabelStyle = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--fs-eyebrow)',
+  fontWeight: 'var(--fw-medium)',
+  letterSpacing: 'var(--tr-eyebrow)',
+  textTransform: 'uppercase',
+  color: 'var(--text-muted)',
+  marginBottom: 'var(--space-5)',
+}
+
+const sectionDividerStyle = {
+  borderTop: '1px solid var(--border-subtle)',
+  margin: 'var(--space-8) 0',
+}
+
+const fieldWrapStyle = {
+  marginBottom: 'var(--space-8)',
+}
+
+const helperTextStyle = {
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--fs-caption)',
+  color: 'var(--text-muted)',
+  marginTop: 'var(--space-2)',
+}
+
+const footerCaptionStyle = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--fs-caption)',
+  color: 'var(--text-muted)',
+}
+
+const optionalTextStyle = {
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--fs-caption)',
+  fontWeight: 400,
+  color: 'var(--text-muted)',
+  marginLeft: 'var(--space-2)',
+}
+
+// Shared collapsed-row chrome for the Audience and Collection restriction
+// panels — the two must look identical when collapsed (Step 3).
+const panelToggleRowStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: 'var(--space-5) var(--space-6)',
+  background: 'var(--bg-sunken)',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 'var(--radius-3)',
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--fs-body-sm)',
+  fontWeight: 'var(--fw-medium)',
+  color: 'var(--text-primary)',
+}
+
+const panelExpandedStyle = {
+  padding: 'var(--space-6)',
+  boxSizing: 'border-box',
+  borderLeft: '1px solid var(--border-subtle)',
+  borderRight: '1px solid var(--border-subtle)',
+  borderBottom: '1px solid var(--border-subtle)',
+  borderBottomLeftRadius: 'var(--radius-3)',
+  borderBottomRightRadius: 'var(--radius-3)',
+  background: 'var(--bg-surface)',
+}
+
+function chevronStyle(open) {
+  return {
+    display: 'inline-flex',
+    transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+    transition: 'transform 0.15s ease',
+  }
 }
 
 const ROLE_OPTIONS = [
@@ -348,83 +443,92 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
         loading: submitting,
       }}
       secondaryActions={[{ content: 'Cancel', onAction: onClose, disabled: submitting }]}
+      footer={<div style={footerCaptionStyle}>Starts immediately unless a future start date is set.</div>}
     >
       <Modal.Section>
-        <BlockStack gap="400">
-          <BlockStack gap="100">
-            <div style={sectionLabelStyle}>Pro deal</div>
-            <Text as="h2" variant="headingMd">
-              Create campaign
-            </Text>
-            <Text as="p" tone="subdued" variant="bodySm">
-              Set the discount, dates and limits. Nothing goes live until you publish it.
-            </Text>
-          </BlockStack>
+        <div>
+          <div style={eyebrowStyle}>Pro deal</div>
+          <h2 style={modalTitleStyle}>Create campaign</h2>
+          <p style={subtitleStyle}>Set the discount, dates and limits. Nothing goes live until you publish it.</p>
 
           {error && (
-            <Banner
-              tone="critical"
-              action={
-                profileIncomplete
-                  ? {
-                      content: 'Go to Settings',
-                      onAction: () => {
-                        onClose()
-                        onGoToSettings?.()
-                      },
-                    }
-                  : undefined
-              }
-            >
-              {error}
-            </Banner>
+            <div style={fieldWrapStyle}>
+              <Banner
+                tone="critical"
+                action={
+                  profileIncomplete
+                    ? {
+                        content: 'Go to Settings',
+                        onAction: () => {
+                          onClose()
+                          onGoToSettings?.()
+                        },
+                      }
+                    : undefined
+                }
+              >
+                {error}
+              </Banner>
+            </div>
           )}
 
-          <FormLayout>
-            <div style={sectionLabelStyle}>Basic details</div>
+          <div style={sectionLabelStyle}>Basic details</div>
+          <div style={fieldWrapStyle}>
             <TextField
               label="Campaign name"
               placeholder="Winter guide programme"
-              helpText="Shown to pros in their deal list."
               value={form.name}
               onChange={setField('name')}
               autoComplete="off"
               requiredIndicator
             />
+            <div style={helperTextStyle}>Shown to pros in their deal list.</div>
+          </div>
+          <div style={fieldWrapStyle}>
             <TextField
               label="Discount percentage"
               type="number"
               min={1}
               suffix="%"
               placeholder="40"
-              helpText="Applied to full-price items in the selected collections."
               value={form.discountValue}
               onChange={setField('discountValue')}
               autoComplete="off"
               requiredIndicator
             />
+            <div style={helperTextStyle}>Applied to full-price items in the selected collections.</div>
+          </div>
 
-            <Divider />
-            <div style={sectionLabelStyle}>Dates & limits</div>
+          <div style={sectionDividerStyle} />
+          <div style={sectionLabelStyle}>Dates & limits</div>
+          <div style={fieldWrapStyle}>
             <TextField
               label="Campaign start date"
               type="date"
               prefix={<Icon source={CalendarIcon} tone="subdued" />}
-              helpText="Leave blank to start immediately. A future date shows as Draft until it arrives."
               value={form.startDate}
               onChange={setField('startDate')}
               autoComplete="off"
             />
+            <div style={helperTextStyle}>
+              Leave blank to start immediately. A future date shows as Draft until it arrives.
+            </div>
+          </div>
+          <div style={fieldWrapStyle}>
             <TextField
               label="Member validity window (days)"
               type="number"
               min={30}
-              helpText="Members will have this many days to use the deal after claiming it. Minimum 30 days."
               value={form.validForDays}
               onChange={setField('validForDays')}
               autoComplete="off"
               requiredIndicator
             />
+            <div style={helperTextStyle}>
+              Members will have this many days to use the deal after claiming it. Minimum 30 days.
+            </div>
+          </div>
+          <div style={fieldWrapStyle}>
             <FormLayout.Group>
               <TextField
                 label="Max total redemptions"
@@ -452,115 +556,132 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
                 />
               </BlockStack>
             </FormLayout.Group>
+          </div>
 
-            <Divider />
-            <InlineStack align="space-between" blockAlign="center">
-              <div style={sectionLabelStyle}>Audience</div>
-              <InlineStack gap="200" blockAlign="center">
-                <Tag>{matchLabel}</Tag>
-                {audienceLoading && <Spinner size="small" />}
-              </InlineStack>
+          <div style={sectionDividerStyle} />
+          <InlineStack align="space-between" blockAlign="center">
+            <div style={sectionLabelStyle}>Audience</div>
+            <InlineStack gap="200" blockAlign="center">
+              <Tag>{matchLabel}</Tag>
+              {audienceLoading && <Spinner size="small" />}
             </InlineStack>
+          </InlineStack>
 
-            <Box borderColor="border" borderWidth="025" borderRadius="200" overflowX="hidden">
-              <Box background="bg-surface-secondary" padding="300">
-                <Button
-                  variant="tertiary"
-                  icon={refineOpen ? ChevronUpIcon : ChevronDownIcon}
-                  onClick={() => setRefineOpen((o) => !o)}
-                >
-                  Refine audience — optional
-                </Button>
-                {!refineOpen && (
+          <div style={fieldWrapStyle}>
+            <div
+              role="button"
+              tabIndex={0}
+              aria-expanded={refineOpen}
+              aria-controls="refine-audience"
+              onClick={() => setRefineOpen((o) => !o)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setRefineOpen((o) => !o)
+                }
+              }}
+              style={panelToggleRowStyle}
+            >
+              <span>
+                Refine audience <span style={optionalTextStyle}>— optional</span>
+              </span>
+              <span style={chevronStyle(refineOpen)}>
+                <Icon source={ChevronRightIcon} tone="subdued" />
+              </span>
+            </div>
+
+            <Collapsible open={refineOpen} id="refine-audience">
+              <div style={panelExpandedStyle}>
+                <BlockStack gap="300">
                   <Text as="p" tone="subdued" variant="bodySm">
-                    Leave this closed to reach all verified members.
+                    Select the roles and regions you want this campaign to reach. Leave everything unchecked to
+                    reach all verified members.
                   </Text>
-                )}
-              </Box>
+                  <ChoiceList
+                    title="Roles"
+                    allowMultiple
+                    choices={roleChoices}
+                    selected={form.roles}
+                    onChange={setField('roles')}
+                  />
+                  <ChoiceList
+                    title="Countries"
+                    allowMultiple
+                    choices={countryChoices}
+                    selected={form.countries}
+                    onChange={setField('countries')}
+                  />
+                </BlockStack>
+              </div>
+            </Collapsible>
+          </div>
 
-              <Collapsible open={refineOpen} id="refine-audience">
-                <Box padding="300">
-                  <BlockStack gap="300">
-                    <Text as="p" tone="subdued" variant="bodySm">
-                      Select the roles and regions you want this campaign to reach. Leave everything unchecked to
-                      reach all verified members.
-                    </Text>
-                    <ChoiceList
-                      title="Roles"
-                      allowMultiple
-                      choices={roleChoices}
-                      selected={form.roles}
-                      onChange={setField('roles')}
-                    />
-                    <ChoiceList
-                      title="Countries"
-                      allowMultiple
-                      choices={countryChoices}
-                      selected={form.countries}
-                      onChange={setField('countries')}
-                    />
-                  </BlockStack>
-                </Box>
-              </Collapsible>
-            </Box>
-
-            <Divider />
-            <div style={sectionLabelStyle}>Collection restriction</div>
-            <Checkbox
-              label="Restrict to specific collections — optional"
-              checked={form.restrictCollections}
-              onChange={setField('restrictCollections')}
-            />
+          <div style={sectionDividerStyle} />
+          <div style={sectionLabelStyle}>Collection restriction</div>
+          <div style={fieldWrapStyle}>
+            <div style={panelToggleRowStyle}>
+              <Checkbox
+                label={
+                  <>
+                    Restrict to specific collections <span style={optionalTextStyle}>— optional</span>
+                  </>
+                }
+                checked={form.restrictCollections}
+                onChange={setField('restrictCollections')}
+              />
+            </div>
             {form.restrictCollections && (
-              <BlockStack gap="200">
-                <Text as="p" tone="subdued" variant="bodySm">
-                  Select the collections you want this discount to apply to. Leave unchecked to apply across your
-                  full catalogue.
-                </Text>
-                {selectedCollections.length > 0 && (
-                  <InlineStack gap="200">
-                    {selectedCollections.map((c) => (
-                      <Tag
-                        key={c.id}
-                        onRemove={() => setField('collectionIds')(form.collectionIds.filter((id) => id !== c.id))}
-                      >
-                        {c.title}
-                      </Tag>
-                    ))}
-                  </InlineStack>
-                )}
-                <div>
-                  <Popover
-                    active={collectionPickerOpen}
-                    onClose={() => setCollectionPickerOpen(false)}
-                    activator={
-                      <Button
-                        variant="plain"
-                        icon={PlusIcon}
-                        onClick={() => setCollectionPickerOpen((o) => !o)}
-                        disabled={availableCollections.length === 0}
-                      >
-                        Add collection
-                      </Button>
-                    }
-                  >
-                    <ActionList
-                      allowFiltering
-                      filterLabel="Search collections"
-                      items={availableCollections.map((c) => ({
-                        content: `${c.title} (${c.productCount})`,
-                        onAction: () => {
-                          setField('collectionIds')([...form.collectionIds, c.id])
-                          setCollectionPickerOpen(false)
-                        },
-                      }))}
-                    />
-                  </Popover>
-                </div>
-              </BlockStack>
+              <div style={panelExpandedStyle}>
+                <BlockStack gap="200">
+                  <Text as="p" tone="subdued" variant="bodySm">
+                    Select the collections you want this discount to apply to. Leave unchecked to apply across your
+                    full catalogue.
+                  </Text>
+                  {selectedCollections.length > 0 && (
+                    <InlineStack gap="200">
+                      {selectedCollections.map((c) => (
+                        <Tag
+                          key={c.id}
+                          onRemove={() => setField('collectionIds')(form.collectionIds.filter((id) => id !== c.id))}
+                        >
+                          {c.title}
+                        </Tag>
+                      ))}
+                    </InlineStack>
+                  )}
+                  <div>
+                    <Popover
+                      active={collectionPickerOpen}
+                      onClose={() => setCollectionPickerOpen(false)}
+                      activator={
+                        <Button
+                          variant="plain"
+                          icon={PlusIcon}
+                          onClick={() => setCollectionPickerOpen((o) => !o)}
+                          disabled={availableCollections.length === 0}
+                        >
+                          Add collection
+                        </Button>
+                      }
+                    >
+                      <ActionList
+                        allowFiltering
+                        filterLabel="Search collections"
+                        items={availableCollections.map((c) => ({
+                          content: `${c.title} (${c.productCount})`,
+                          onAction: () => {
+                            setField('collectionIds')([...form.collectionIds, c.id])
+                            setCollectionPickerOpen(false)
+                          },
+                        }))}
+                      />
+                    </Popover>
+                  </div>
+                </BlockStack>
+              </div>
             )}
-          </FormLayout>
-        </BlockStack>
+          </div>
+        </div>
       </Modal.Section>
     </Modal>
   )
