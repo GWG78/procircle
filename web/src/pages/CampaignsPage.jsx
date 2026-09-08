@@ -31,16 +31,6 @@ const shop = new URLSearchParams(window.location.search).get('shop') || ''
 
 // Shared design-token styles for the create campaign modal — see
 // web/src/styles/tokens.css for the underlying custom-property values.
-const eyebrowStyle = {
-  fontFamily: 'var(--font-mono)',
-  fontSize: 'var(--fs-eyebrow)',
-  fontWeight: 'var(--fw-medium)',
-  letterSpacing: 'var(--tr-eyebrow)',
-  textTransform: 'uppercase',
-  color: 'var(--text-muted)',
-  margin: '0 0 var(--space-3) 0',
-}
-
 const modalTitleStyle = {
   fontFamily: 'var(--font-sans)',
   fontSize: 'var(--fs-h2)',
@@ -69,11 +59,11 @@ const sectionLabelStyle = {
 
 const sectionDividerStyle = {
   borderTop: '1px solid var(--border-subtle)',
-  margin: 'var(--space-8) 0',
+  margin: 'var(--space-9) 0',
 }
 
 const fieldWrapStyle = {
-  marginBottom: 'var(--space-8)',
+  marginBottom: 'var(--space-7)',
 }
 
 const helperTextStyle = {
@@ -81,12 +71,6 @@ const helperTextStyle = {
   fontSize: 'var(--fs-caption)',
   color: 'var(--text-muted)',
   marginTop: 'var(--space-2)',
-}
-
-const footerCaptionStyle = {
-  fontFamily: 'var(--font-mono)',
-  fontSize: 'var(--fs-caption)',
-  color: 'var(--text-muted)',
 }
 
 const optionalTextStyle = {
@@ -230,7 +214,6 @@ const EMPTY_FORM = {
   maxRedemptionsPerUserUnlimited: false,
   roles: [],
   countries: [],
-  restrictCollections: false,
   collectionIds: [],
 }
 
@@ -244,6 +227,7 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
   const [profileIncomplete, setProfileIncomplete] = useState(false)
   const [activeFilters, setActiveFilters] = useState(EMPTY_ACTIVE_FILTERS)
   const [refineOpen, setRefineOpen] = useState(false)
+  const [collectionsOpen, setCollectionsOpen] = useState(false)
   const [audienceCount, setAudienceCount] = useState(null)
   const [audienceLoading, setAudienceLoading] = useState(false)
   const [collectionPickerOpen, setCollectionPickerOpen] = useState(false)
@@ -255,6 +239,7 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
       setProfileIncomplete(false)
       setActiveFilters(EMPTY_ACTIVE_FILTERS)
       setRefineOpen(false)
+      setCollectionsOpen(false)
       setCollectionPickerOpen(false)
 
       shopify
@@ -386,7 +371,7 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
     const filters = [
       ...form.roles.map((value) => ({ filterType: 'role', value })),
       ...form.countries.map((value) => ({ filterType: 'country', value })),
-      ...(form.restrictCollections ? form.collectionIds.map((value) => ({ filterType: 'collection', value })) : []),
+      ...form.collectionIds.map((value) => ({ filterType: 'collection', value })),
     ]
 
     const payload = {
@@ -443,11 +428,9 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
         loading: submitting,
       }}
       secondaryActions={[{ content: 'Cancel', onAction: onClose, disabled: submitting }]}
-      footer={<div style={footerCaptionStyle}>Starts immediately unless a future start date is set.</div>}
     >
       <Modal.Section>
         <div>
-          <div style={eyebrowStyle}>Pro deal</div>
           <h2 style={modalTitleStyle}>Create campaign</h2>
           <p style={subtitleStyle}>Set the discount, dates and limits. Nothing goes live until you publish it.</p>
 
@@ -559,13 +542,22 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
           </div>
 
           <div style={sectionDividerStyle} />
-          <InlineStack align="space-between" blockAlign="center">
-            <div style={sectionLabelStyle}>Audience</div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 'var(--space-5)',
+            }}
+          >
+            <div style={{ ...sectionLabelStyle, marginBottom: 0 }}>Audience</div>
             <InlineStack gap="200" blockAlign="center">
-              <Tag>{matchLabel}</Tag>
+              <span style={{ padding: '4px 8px', display: 'inline-flex' }}>
+                <Tag>{matchLabel}</Tag>
+              </span>
               {audienceLoading && <Spinner size="small" />}
             </InlineStack>
-          </InlineStack>
+          </div>
 
           <div style={fieldWrapStyle}>
             <div
@@ -619,24 +611,35 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
           <div style={sectionDividerStyle} />
           <div style={sectionLabelStyle}>Collection restriction</div>
           <div style={fieldWrapStyle}>
-            <div style={panelToggleRowStyle}>
-              <Checkbox
-                label={
-                  <>
-                    Restrict to specific collections <span style={optionalTextStyle}>— optional</span>
-                  </>
+            <div
+              role="button"
+              tabIndex={0}
+              aria-expanded={collectionsOpen}
+              aria-controls="collection-restriction"
+              onClick={() => setCollectionsOpen((o) => !o)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setCollectionsOpen((o) => !o)
                 }
-                checked={form.restrictCollections}
-                onChange={setField('restrictCollections')}
-              />
+              }}
+              style={panelToggleRowStyle}
+            >
+              <span>
+                Restrict to specific collections <span style={optionalTextStyle}>— optional</span>
+              </span>
+              <span style={chevronStyle(collectionsOpen)}>
+                <Icon source={ChevronRightIcon} tone="subdued" />
+              </span>
             </div>
-            {form.restrictCollections && (
+
+            <Collapsible open={collectionsOpen} id="collection-restriction">
               <div style={panelExpandedStyle}>
                 <BlockStack gap="200">
-                  <Text as="p" tone="subdued" variant="bodySm">
+                  <div style={helperTextStyle}>
                     Select the collections you want this discount to apply to. Leave unchecked to apply across your
                     full catalogue.
-                  </Text>
+                  </div>
                   {selectedCollections.length > 0 && (
                     <InlineStack gap="200">
                       {selectedCollections.map((c) => (
@@ -679,7 +682,7 @@ function CreateCampaignModal({ open, onClose, onCreated, onGoToSettings, collect
                   </div>
                 </BlockStack>
               </div>
-            )}
+            </Collapsible>
           </div>
         </div>
       </Modal.Section>
