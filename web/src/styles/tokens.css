@@ -7,15 +7,28 @@
   /* Typography */
   --font-sans: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* No separate display face has been supplied yet — aliased to
+     --font-sans so headings don't fall back to the browser default until
+     a real display font is chosen. */
+  --font-display: var(--font-sans);
   --fs-eyebrow: 12px;
   --fs-body: 16px;
   --fs-body-sm: 14px;
   --fs-caption: 12px;
+  /* --fs-h1 through --tr-label below are approximated to fit the existing
+     scale (not supplied by any prior prompt) — see chat report for the
+     reasoning, adjust if design specs land later. */
+  --fs-h1: 28px;
   --fs-h2: 21px;
+  --fs-h3: 18px;
+  --fs-mono-sm: 11px;
   --fw-medium: 500;
   --fw-semibold: 600;
+  --fw-eyebrow: 500;
   --lh-body: 1.5;
   --tr-eyebrow: 2px;
+  --tr-mono: 0.5px;
+  --tr-label: 1px;
 
   /* Colour — ink */
   --ink-800: #14181B;
@@ -51,4 +64,9 @@
   --radius-2: 5px;
   --radius-3: 8px;
   --radius-4: 12px;
+  --radius-pill: 999px;
+
+  /* Elevation — not previously defined; using the fallback value called
+     out for card shadows. */
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.08);
 }

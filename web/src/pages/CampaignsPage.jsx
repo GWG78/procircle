@@ -24,7 +24,15 @@ import {
   ActionList,
   Icon,
 } from '@shopify/polaris'
-import { ChevronRightIcon, CalendarIcon, PlusIcon } from '@shopify/polaris-icons'
+import {
+  ChevronRightIcon,
+  CalendarIcon,
+  PlusIcon,
+  EditIcon,
+  PauseCircleIcon,
+  PlayCircleIcon,
+  DeleteIcon,
+} from '@shopify/polaris-icons'
 import { useAppBridge } from '@shopify/app-bridge-react'
 
 const shop = new URLSearchParams(window.location.search).get('shop') || ''
@@ -118,6 +126,151 @@ function chevronStyle(open) {
   }
 }
 
+// ------------------------------------------------------------
+// Page header + campaign card styles
+// ------------------------------------------------------------
+const pageHeaderRowStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  marginBottom: 'var(--space-9)',
+}
+
+const pageEyebrowStyle = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--fs-eyebrow)',
+  fontWeight: 'var(--fw-eyebrow)',
+  letterSpacing: 'var(--tr-eyebrow)',
+  textTransform: 'uppercase',
+  color: 'var(--text-brand)',
+  margin: '0 0 var(--space-2) 0',
+}
+
+const pageH1Style = {
+  fontFamily: 'var(--font-display)',
+  fontSize: 'var(--fs-h1)',
+  fontWeight: 'var(--fw-semibold)',
+  color: 'var(--text-primary)',
+  margin: '0 0 var(--space-2) 0',
+}
+
+const pageSummaryStyle = {
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--fs-body-sm)',
+  color: 'var(--text-secondary)',
+  margin: 0,
+}
+
+const cardListStyle = {
+  display: 'grid',
+  gap: 'var(--space-7)',
+  marginTop: 'var(--space-9)',
+}
+
+const cardStyle = {
+  background: 'var(--paper-000)',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 'var(--radius-3)',
+  boxShadow: 'var(--shadow-1)',
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1.35fr) minmax(0, 1fr)',
+  overflow: 'hidden',
+}
+
+const cardLeftStyle = { padding: 'var(--space-8)' }
+
+const cardRightStyle = {
+  padding: 'var(--space-8)',
+  background: 'var(--paper-050)',
+  borderLeft: '1px solid var(--border-subtle)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--space-8)',
+}
+
+const cardNameStyle = {
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--fs-h3)',
+  fontWeight: 'var(--fw-semibold)',
+  color: 'var(--text-primary)',
+}
+
+const cardStatusLineStyle = {
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--fs-body-sm)',
+  color: 'var(--text-secondary)',
+  margin: 0,
+}
+
+const metaRowStyle = {
+  borderTop: '1px solid var(--border-subtle)',
+  marginTop: 'var(--space-5)',
+  paddingTop: 'var(--space-5)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--space-2)',
+}
+
+const metaLabelStyle = {
+  width: '76px',
+  flexShrink: 0,
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--fs-mono-sm)',
+  letterSpacing: 'var(--tr-mono)',
+  color: 'var(--text-muted)',
+}
+
+const metaValueStyle = {
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--fs-caption)',
+  color: 'var(--text-secondary)',
+}
+
+const metricsGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(110px, 100%), 1fr))',
+  gap: 'var(--space-6)',
+}
+
+const metricLabelStyle = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--fs-mono-sm)',
+  letterSpacing: 'var(--tr-label)',
+  textTransform: 'uppercase',
+  color: 'var(--text-muted)',
+}
+
+const metricValueStyle = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--fs-h3)',
+  fontVariantNumeric: 'tabular-nums',
+  color: 'var(--text-primary)',
+  marginTop: 'var(--space-3)',
+}
+
+const progressTrackStyle = {
+  height: '4px',
+  borderRadius: 'var(--radius-pill)',
+  background: 'var(--paper-200)',
+  overflow: 'hidden',
+}
+
+function progressFillStyle(pct) {
+  return {
+    height: '100%',
+    background: 'var(--spruce-600)',
+    width: `${pct}%`,
+  }
+}
+
+const actionsRowStyle = {
+  marginTop: 'auto',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 'var(--space-5)',
+  flexWrap: 'wrap',
+}
+
 const ROLE_OPTIONS = [
   { value: 'ski_instructor', label: 'Ski Instructor' },
   { value: 'snowboard_instructor', label: 'Snowboard Instructor' },
@@ -180,24 +333,39 @@ function collectionSummary(campaign, collections) {
 }
 
 function formatRevenue(amount) {
-  return `$${Number(amount || 0).toFixed(2)}`
+  return `CHF ${Number(amount || 0).toFixed(2)}`
 }
 
 function formatDate(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-// "cap_reached", "paused", and "ended" already have their own Badge tone/
-// label (see STATUS_TONES/STATUS_LABELS) — this line is only for the two
-// states the badge alone doesn't fully explain: whether an active campaign
-// is actually live yet, and when a draft goes live.
+function formatCap(campaign) {
+  if (campaign.maxRedemptions == null) return 'Unlimited'
+  return `${campaign.confirmedRedemptions} / ${campaign.maxRedemptions}`
+}
+
+// Always at least 2% so the bar reads as present even at 0 redemptions;
+// uncapped campaigns (maxRedemptions null) render an empty track — there's
+// no denominator to compute a meaningful fraction against.
+function capPercent(campaign) {
+  if (campaign.maxRedemptions == null) return 0
+  return Math.max(2, Math.round((campaign.confirmedRedemptions / campaign.maxRedemptions) * 100))
+}
+
+// "cap_reached" keeps its own Badge tone/label (see STATUS_TONES/
+// STATUS_LABELS) but has no line here — unlike a plain "active" campaign
+// it can no longer actually be claimed by new members, so "Live — pros
+// can access..." would be misleading.
 function statusLine(campaign) {
   if (campaign.status === 'active') {
-    return 'Live — members can now access this deal on procircle.io'
+    return 'Live — pros can access this deal on procircle.io'
   }
   if (campaign.status === 'draft') {
-    return `Draft — goes live on ${formatDate(campaign.startsAt)}`
+    return campaign.startsAt ? `Draft — goes live on ${formatDate(campaign.startsAt)}` : null
   }
+  if (campaign.status === 'paused') return 'Paused'
+  if (campaign.status === 'ended') return 'Ended'
   return null
 }
 
@@ -933,107 +1101,109 @@ function EditCampaignModal({ campaign, collections, onClose, onSaved }) {
 }
 
 /* ============================================================
-   Campaigns list — each campaign is a bordered card split into a left
-   info zone and a right stats/actions zone by a vertical divider. Column
-   headers for the right zone's stats repeat inside every card, above
-   that card's stats sub-row.
+   Campaigns list — each campaign is a two-column card: info on the left,
+   metrics/progress/actions on a sunken right-hand panel.
    ============================================================ */
-const LEFT_ZONE_FLEX = '3 3 0'
-const RIGHT_ZONE_FLEX = '2 2 0'
-
 function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested, onEditRequested, loading }) {
   const canPause = campaign.status === 'active' || campaign.status === 'cap_reached' || campaign.status === 'draft'
   const canResume = campaign.status === 'paused'
   const canEnd = campaign.status !== 'ended'
   const canEdit = campaign.status !== 'ended'
+  const line = statusLine(campaign)
+  const pct = capPercent(campaign)
 
   return (
-    <Card padding="0">
-      <div style={{ display: 'flex' }}>
-        <div style={{ flex: LEFT_ZONE_FLEX, padding: '1rem' }}>
-          <BlockStack gap="400">
-            <InlineStack gap="200" blockAlign="center">
-              <Text as="span" fontWeight="semibold" variant="headingSm">
-                {campaign.name}
-              </Text>
-              <Badge tone={STATUS_TONES[campaign.status]}>{STATUS_LABELS[campaign.status] || campaign.status}</Badge>
-            </InlineStack>
+    <div style={cardStyle}>
+      <div style={cardLeftStyle}>
+        <InlineStack gap="200" blockAlign="center">
+          <span style={cardNameStyle}>{campaign.name}</span>
+          <Badge tone={STATUS_TONES[campaign.status]}>{STATUS_LABELS[campaign.status] || campaign.status}</Badge>
+        </InlineStack>
 
-            {statusLine(campaign) && (
-              <Text as="p" tone="subdued" variant="bodySm">
-                {statusLine(campaign)}
-              </Text>
-            )}
+        {line && <p style={cardStatusLineStyle}>{line}</p>}
 
-            <BlockStack gap="100">
-              <Text as="p" tone="subdued" variant="bodySm">
-                Roles: {rolesSummary(campaign)}
-              </Text>
-              <Text as="p" tone="subdued" variant="bodySm">
-                Regions: {regionsSummary(campaign)}
-              </Text>
-              <Text as="p" tone="subdued" variant="bodySm">
-                Collection: {collectionSummary(campaign, collections)}
-              </Text>
-            </BlockStack>
-          </BlockStack>
+        <div style={metaRowStyle}>
+          <div style={{ display: 'flex' }}>
+            <span style={metaLabelStyle}>Roles</span>
+            <span style={metaValueStyle}>{rolesSummary(campaign)}</span>
+          </div>
+          <div style={{ display: 'flex' }}>
+            <span style={metaLabelStyle}>Regions</span>
+            <span style={metaValueStyle}>{regionsSummary(campaign)}</span>
+          </div>
+          <div style={{ display: 'flex' }}>
+            <span style={metaLabelStyle}>Collection</span>
+            <span style={metaValueStyle}>{collectionSummary(campaign, collections)}</span>
+          </div>
         </div>
+      </div>
 
-        <div style={{ width: '1px', backgroundColor: 'var(--p-color-border)' }} />
-
-        <div style={{ flex: RIGHT_ZONE_FLEX, padding: '1rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
-              <Text as="span" tone="subdued" variant="bodySm" fontWeight="medium">
-                Sales
-              </Text>
-              <Text as="span" tone="subdued" variant="bodySm" fontWeight="medium">
-                Revenue
-              </Text>
-              <Text as="span" tone="subdued" variant="bodySm" fontWeight="medium">
-                Redemption cap
-              </Text>
+      <div style={cardRightStyle}>
+        <div>
+          <div style={metricsGridStyle}>
+            <div>
+              <div style={metricLabelStyle}>Sales</div>
+              <div style={metricValueStyle}>{campaign.salesCount}</div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
-              <Text as="span">{campaign.salesCount}</Text>
-              <Text as="span">{formatRevenue(campaign.salesRevenue)}</Text>
-              <Text as="span">
-                {campaign.confirmedRedemptions} / {campaign.maxRedemptions ?? '∞'}
-              </Text>
+            <div>
+              <div style={metricLabelStyle}>Revenue</div>
+              <div style={metricValueStyle}>{formatRevenue(campaign.salesRevenue)}</div>
+            </div>
+            <div>
+              <div style={metricLabelStyle}>Cap</div>
+              <div style={metricValueStyle}>{formatCap(campaign)}</div>
             </div>
           </div>
 
-          <InlineStack gap="200" align="end">
-            {canEdit && (
-              <Button size="slim" onClick={() => onEditRequested(campaign)}>
-                Edit
-              </Button>
-            )}
-            {canPause && (
-              <Button size="slim" loading={loading} onClick={() => onPauseResume(campaign, 'pause')}>
-                Pause
-              </Button>
-            )}
-            {canResume && (
-              <Button size="slim" loading={loading} onClick={() => onPauseResume(campaign, 'resume')}>
-                Resume
-              </Button>
-            )}
-            {canEnd && (
-              <Button size="slim" tone="critical" onClick={() => onEndRequested(campaign)}>
+          <div style={{ marginTop: 'var(--space-5)', ...progressTrackStyle }}>
+            <div style={progressFillStyle(pct)} />
+          </div>
+        </div>
+
+        <div style={actionsRowStyle}>
+          {canEdit && (
+            <Button size="slim" icon={EditIcon} onClick={() => onEditRequested(campaign)}>
+              Edit
+            </Button>
+          )}
+          {canPause && (
+            <Button
+              size="slim"
+              variant="tertiary"
+              icon={PauseCircleIcon}
+              loading={loading}
+              onClick={() => onPauseResume(campaign, 'pause')}
+            >
+              Pause
+            </Button>
+          )}
+          {canResume && (
+            <Button
+              size="slim"
+              variant="tertiary"
+              icon={PlayCircleIcon}
+              loading={loading}
+              onClick={() => onPauseResume(campaign, 'resume')}
+            >
+              Resume
+            </Button>
+          )}
+          {canEnd && (
+            <div style={{ marginLeft: 'auto' }}>
+              <Button size="slim" tone="critical" icon={DeleteIcon} onClick={() => onEndRequested(campaign)}>
                 End
               </Button>
-            )}
-          </InlineStack>
+            </div>
+          )}
         </div>
       </div>
-    </Card>
+    </div>
   )
 }
 
 function CampaignsList({ campaigns, collections, onPauseResume, onEndRequested, onEditRequested, actionLoadingId }) {
   return (
-    <BlockStack gap="300">
+    <div style={cardListStyle}>
       {campaigns.map((campaign) => (
         <CampaignRowCard
           key={campaign.id}
@@ -1045,7 +1215,7 @@ function CampaignsList({ campaigns, collections, onPauseResume, onEndRequested, 
           loading={actionLoadingId === campaign.id}
         />
       ))}
-    </BlockStack>
+    </div>
   )
 }
 
@@ -1163,14 +1333,25 @@ export default function CampaignsPage({ onGoToSettings }) {
 
   const hasCampaigns = campaigns.length > 0
   const activeCount = campaigns.filter((c) => c.status === 'active' || c.status === 'cap_reached').length
+  const draftCount = campaigns.filter((c) => c.status === 'draft').length
 
   return (
-    <Page
-      title="Campaigns"
-      primaryAction={
-        hasCampaigns ? { content: 'Add campaign', onAction: handleOpenCreate } : undefined
-      }
-    >
+    <Page>
+      <div style={pageHeaderRowStyle}>
+        <div>
+          <div style={pageEyebrowStyle}>Pro deals</div>
+          <h1 style={pageH1Style}>Campaigns</h1>
+          <p style={pageSummaryStyle}>
+            {activeCount} active, {draftCount} draft
+          </p>
+        </div>
+        {hasCampaigns && (
+          <Button variant="primary" onClick={handleOpenCreate}>
+            Add campaign
+          </Button>
+        )}
+      </div>
+
       {!loading && !hasCampaigns && (
         <Card>
           <EmptyState
@@ -1184,19 +1365,14 @@ export default function CampaignsPage({ onGoToSettings }) {
       )}
 
       {hasCampaigns && (
-        <BlockStack gap="300">
-          <Text as="p" tone="subdued">
-            {activeCount} active campaign{activeCount === 1 ? '' : 's'}
-          </Text>
-          <CampaignsList
-            campaigns={campaigns}
-            collections={collections}
-            onPauseResume={handlePauseResume}
-            onEndRequested={setEndingCampaign}
-            onEditRequested={setEditingCampaign}
-            actionLoadingId={actionLoadingId}
-          />
-        </BlockStack>
+        <CampaignsList
+          campaigns={campaigns}
+          collections={collections}
+          onPauseResume={handlePauseResume}
+          onEndRequested={setEndingCampaign}
+          onEditRequested={setEditingCampaign}
+          actionLoadingId={actionLoadingId}
+        />
       )}
 
       <CreateCampaignModal
