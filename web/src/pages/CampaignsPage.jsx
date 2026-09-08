@@ -151,7 +151,7 @@ const pageH1Style = {
   fontSize: 'var(--fs-h1)',
   fontWeight: 'var(--fw-semibold)',
   color: 'var(--text-primary)',
-  margin: '0 0 var(--space-2) 0',
+  margin: '0 0 var(--space-4) 0',
 }
 
 const pageSummaryStyle = {
@@ -200,6 +200,7 @@ const cardStatusLineStyle = {
   fontSize: 'var(--fs-body-sm)',
   color: 'var(--text-secondary)',
   margin: 0,
+  paddingTop: '5px',
 }
 
 const metaRowStyle = {
@@ -355,11 +356,11 @@ function capPercent(campaign) {
 
 // "cap_reached" keeps its own Badge tone/label (see STATUS_TONES/
 // STATUS_LABELS) but has no line here — unlike a plain "active" campaign
-// it can no longer actually be claimed by new members, so "Live — pros
+// it can no longer actually be claimed by new members, so "Live — members
 // can access..." would be misleading.
 function statusLine(campaign) {
   if (campaign.status === 'active') {
-    return 'Live — pros can access this deal on procircle.io'
+    return 'Live — members can access this deal on procircle.io'
   }
   if (campaign.status === 'draft') {
     return campaign.startsAt ? `Draft — goes live on ${formatDate(campaign.startsAt)}` : null
@@ -1339,7 +1340,7 @@ export default function CampaignsPage({ onGoToSettings }) {
     <Page>
       <div style={pageHeaderRowStyle}>
         <div>
-          <div style={pageEyebrowStyle}>Pro deals</div>
+          <div style={pageEyebrowStyle}>Member Offers</div>
           <h1 style={pageH1Style}>Campaigns</h1>
           <p style={pageSummaryStyle}>
             {activeCount} active, {draftCount} draft
