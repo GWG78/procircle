@@ -333,8 +333,10 @@ function collectionSummary(campaign, collections) {
   return values.map((f) => collections.find((c) => c.id === f.value)?.title || f.value).join(', ')
 }
 
-function formatRevenue(amount) {
-  return `CHF ${Number(amount || 0).toFixed(2)}`
+// Falls back to CHF if the shop's currencyCode hasn't loaded yet (or
+// couldn't be fetched from Shopify) — see services/shopService.js.
+function formatRevenue(amount, currency) {
+  return `${currency || 'CHF'} ${Number(amount || 0).toFixed(2)}`
 }
 
 function formatDate(dateStr) {
@@ -1105,7 +1107,7 @@ function EditCampaignModal({ campaign, collections, onClose, onSaved }) {
    Campaigns list — each campaign is a two-column card: info on the left,
    metrics/progress/actions on a sunken right-hand panel.
    ============================================================ */
-function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested, onEditRequested, loading }) {
+function CampaignRowCard({ campaign, collections, currencyCode, onPauseResume, onEndRequested, onEditRequested, loading }) {
   const canPause = campaign.status === 'active' || campaign.status === 'cap_reached' || campaign.status === 'draft'
   const canResume = campaign.status === 'paused'
   const canEnd = campaign.status !== 'ended'
@@ -1148,7 +1150,7 @@ function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested,
             </div>
             <div>
               <div style={metricLabelStyle}>Revenue</div>
-              <div style={metricValueStyle}>{formatRevenue(campaign.salesRevenue)}</div>
+              <div style={metricValueStyle}>{formatRevenue(campaign.salesRevenue, currencyCode)}</div>
             </div>
             <div>
               <div style={metricLabelStyle}>Cap</div>
@@ -1202,7 +1204,7 @@ function CampaignRowCard({ campaign, collections, onPauseResume, onEndRequested,
   )
 }
 
-function CampaignsList({ campaigns, collections, onPauseResume, onEndRequested, onEditRequested, actionLoadingId }) {
+function CampaignsList({ campaigns, collections, currencyCode, onPauseResume, onEndRequested, onEditRequested, actionLoadingId }) {
   return (
     <div style={cardListStyle}>
       {campaigns.map((campaign) => (
@@ -1210,6 +1212,7 @@ function CampaignsList({ campaigns, collections, onPauseResume, onEndRequested, 
           key={campaign.id}
           campaign={campaign}
           collections={collections}
+          currencyCode={currencyCode}
           onPauseResume={onPauseResume}
           onEndRequested={onEndRequested}
           onEditRequested={onEditRequested}
@@ -1226,6 +1229,7 @@ function CampaignsList({ campaigns, collections, onPauseResume, onEndRequested, 
 export default function CampaignsPage({ onGoToSettings }) {
   const [campaigns, setCampaigns] = useState([])
   const [collections, setCollections] = useState([])
+  const [settings, setSettings] = useState(null)
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [endingCampaign, setEndingCampaign] = useState(null)
@@ -1262,10 +1266,24 @@ export default function CampaignsPage({ onGoToSettings }) {
     }
   }, [shopify])
 
+  const loadSettings = useCallback(async () => {
+    try {
+      const token = await shopify.idToken()
+      const res = await fetch(`/api/settings?shop=${shop}`, {
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json()
+      if (data.success) setSettings(data)
+    } catch {
+      // Non-fatal — formatRevenue falls back to CHF until this loads.
+    }
+  }, [shopify])
+
   useEffect(() => {
     setLoading(true)
-    Promise.all([loadCampaigns(), loadCollections()]).finally(() => setLoading(false))
-  }, [loadCampaigns, loadCollections])
+    Promise.all([loadCampaigns(), loadCollections(), loadSettings()]).finally(() => setLoading(false))
+  }, [loadCampaigns, loadCollections, loadSettings])
 
   const handleCreated = useCallback(() => {
     setModalOpen(false)
@@ -1369,6 +1387,7 @@ export default function CampaignsPage({ onGoToSettings }) {
         <CampaignsList
           campaigns={campaigns}
           collections={collections}
+          currencyCode={settings?.currencyCode}
           onPauseResume={handlePauseResume}
           onEndRequested={setEndingCampaign}
           onEditRequested={setEditingCampaign}

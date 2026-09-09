@@ -86,6 +86,7 @@ router.get("/", verifyShopifyAuth, async (req, res) => {
       return res.json({
         success: true,
         shopDomain,
+        currencyCode: shop.currencyCode,
         settings,
         profileComplete: isBrandProfileComplete(settings),
       });
@@ -94,6 +95,7 @@ router.get("/", verifyShopifyAuth, async (req, res) => {
     res.json({
       success: true,
       shopDomain,
+      currencyCode: shop.currencyCode,
       settings: shop.settings,
       profileComplete: isBrandProfileComplete(shop.settings),
     });

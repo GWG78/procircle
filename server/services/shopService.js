@@ -9,12 +9,13 @@ import { shopify } from "../shopify.js";
 
 const prisma = new PrismaClient();
 
-const SHOP_INFO_QUERY = `{ shop { name } }`;
+const SHOP_INFO_QUERY = `{ shop { name currencyCode } }`;
 
 /**
- * Fetches a shop's real Shopify business name via the Admin GraphQL API.
- * Falls back to the raw shop domain on any failure — never throws, since
- * a brand name is cosmetic, not something that should block a caller.
+ * Fetches a shop's real Shopify business name (and storefront currency) via
+ * the Admin GraphQL API. Falls back to the raw shop domain / null currency
+ * on any failure — never throws, since neither is something that should
+ * block a caller.
  */
 async function fetchShopifyShopName(shop) {
   try {
@@ -22,10 +23,13 @@ async function fetchShopifyShopName(shop) {
       session: { shop: shop.shopDomain, accessToken: shop.accessToken },
     });
     const response = await client.request(SHOP_INFO_QUERY);
-    return response.data?.shop?.name || shop.shopDomain;
+    return {
+      name: response.data?.shop?.name || shop.shopDomain,
+      currencyCode: response.data?.shop?.currencyCode || null,
+    };
   } catch (err) {
     console.error(`❌ fetchShopifyShopName failed for ${shop.shopDomain}:`, err.message);
-    return shop.shopDomain;
+    return { name: shop.shopDomain, currencyCode: null };
   }
 }
 
@@ -51,14 +55,14 @@ async function fetchShopifyShopName(shop) {
 async function getOrFetchShopName(shopId) {
   const shop = await prisma.shop.findUnique({
     where: { id: shopId },
-    select: { id: true, shopDomain: true, accessToken: true, name: true, displayNameOverride: true },
+    select: { id: true, shopDomain: true, accessToken: true, name: true, currencyCode: true, displayNameOverride: true },
   });
   if (!shop) return null;
   if (shop.displayNameOverride) return shop.displayNameOverride;
-  if (shop.name) return shop.name;
+  if (shop.name && shop.currencyCode) return shop.name;
 
-  const name = await fetchShopifyShopName(shop);
-  await prisma.shop.update({ where: { id: shop.id }, data: { name } });
+  const { name, currencyCode } = await fetchShopifyShopName(shop);
+  await prisma.shop.update({ where: { id: shop.id }, data: { name, currencyCode } });
   return name;
 }
 

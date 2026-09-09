@@ -26,6 +26,9 @@ model Shop {
   logoWpAttachmentId  Int?
   name                String?
   displayNameOverride String?
+  // Shopify's storefront currency (e.g. "CHF"), cached alongside name via
+  // the same GraphQL call/cache-once pattern — see services/shopService.js.
+  currencyCode        String?
 
   // Commission rate applied to verified pro deal sales (0.08 = 8%),
   // overridable per shop. See webhooks/ordersPaid.mjs.
