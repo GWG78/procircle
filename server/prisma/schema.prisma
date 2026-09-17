@@ -8,10 +8,16 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
 model Shop {
   id          Int       @id @default(autoincrement())
   shopDomain  String    @unique
-  accessToken String?
+
+  accessToken           String?
+  accessTokenExpiresAt  DateTime?
+  refreshToken          String?
+  refreshTokenExpiresAt DateTime?
+
   scope        String?
   installed    Boolean   @default(false)
   uninstalledAt DateTime?
@@ -26,17 +32,9 @@ model Shop {
   logoWpAttachmentId  Int?
   name                String?
   displayNameOverride String?
-  // Shopify's storefront currency (e.g. "CHF"), cached alongside name via
-  // the same GraphQL call/cache-once pattern — see services/shopService.js.
   currencyCode        String?
 
-  // Commission rate applied to verified pro deal sales (0.08 = 8%),
-  // overridable per shop. See webhooks/ordersPaid.mjs.
   commissionRate        Float   @default(0.08)
-  // Despite the name, this stores the app subscription *line item* id
-  // (AppSubscriptionLineItem.id), not the subscription id itself — that's
-  // what appUsageRecordCreate's subscriptionLineItemId argument requires.
-  // Set by services/billing.js at install time. See services/usageRecord.js.
   billingSubscriptionId String?
 }
 
