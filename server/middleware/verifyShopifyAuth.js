@@ -1,39 +1,110 @@
+
+
 // ~/procircle/server/middleware/verifyShopifyAuth.js
 //
-// Verifies the App Bridge session token (Authorization: Bearer <JWT>) sent
-// by embedded-admin requests. Deliberately does NOT use shopify.sessionStorage
-// — that config option doesn't exist on the installed @shopify/shopify-api
-// (v12 dropped it; shopify.sessionStorage is undefined here). Instead this
-// verifies the JWT directly (signature + aud + exp/nbf, all handled by
-// decodeSessionToken) and resolves the shop from Postgres, which is already
-// this app's source of truth for installed shops (see auth.mjs).
-import { shopify } from "../shopify.js";
-import { PrismaClient } from "@prisma/client";
+// Verifies the App Bridge session token sent as:
+// Authorization: Bearer <JWT>
+//
+// With Shopify-managed installation, a newly installed shop may not yet
+// have an offline Admin API access token in ProCircle's database.
+//
+// On the first authenticated request from the embedded app, this middleware
+// exchanges the verified App Bridge ID token for an offline access token
+// and stores the resulting installation state in Postgres.
 
-const prisma = new PrismaClient();
+import { shopify } from "../shopify.js";
+import prisma from "../prismaClient.js";
+import {
+  exchangeIdTokenForOfflineToken,
+} from "../services/shopifyTokenService.js";
 
 export default async function verifyShopifyAuth(req, res, next) {
   try {
+    // -------------------------------------------------------
+    // 1. Extract App Bridge ID token
+    // -------------------------------------------------------
     const authHeader = req.headers.authorization || "";
     const match = authHeader.match(/^Bearer (.+)$/);
+
     if (!match) {
-      return res.status(401).json({ error: "Unauthorized: missing session token" });
+      return res.status(401).json({
+        error: "Unauthorized: missing session token",
+      });
     }
 
-    const payload = await shopify.session.decodeSessionToken(match[1]);
+    const idToken = match[1];
+
+    // -------------------------------------------------------
+    // 2. Verify Shopify's signed session token
+    // -------------------------------------------------------
+    const payload = await shopify.session.decodeSessionToken(idToken);
+
+    if (!payload?.dest) {
+      return res.status(401).json({
+        error: "Unauthorized: invalid session token",
+      });
+    }
+
+    // The authenticated shop comes from the verified token.
+    // Do NOT trust req.query.shop for authentication.
     const shopDomain = payload.dest.replace(/^https:\/\//, "");
 
-    const shop = await prisma.shop.findUnique({ where: { shopDomain } });
-    if (!shop || !shop.installed) {
-      return res.status(401).json({ error: "Unauthorized: shop not installed" });
+    // -------------------------------------------------------
+    // 3. Look up existing ProCircle installation
+    // -------------------------------------------------------
+    let shop = await prisma.shop.findUnique({
+      where: { shopDomain },
+    });
+
+    // -------------------------------------------------------
+    // 4. Bootstrap Shopify-managed installation
+    // -------------------------------------------------------
+    //
+    // A valid App Bridge ID token proves that this request came
+    // from the Shopify Admin for this app/shop.
+    //
+    // If ProCircle doesn't yet have its offline token, exchange
+    // the ID token for one and create/update the Shop record.
+    //
+    if (!shop || !shop.installed || !shop.accessToken) {
+      console.log(
+        `🔑 No offline access token for ${shopDomain}; starting Shopify token exchange`
+      );
+
+      shop = await exchangeIdTokenForOfflineToken(
+        shopDomain,
+        idToken
+      );
+
+      console.log(
+        `✅ Shopify offline access token stored for ${shopDomain}`
+      );
     }
 
-    // Authoritative shop for this request — routes should use this, not
-    // req.query.shop, which is caller-supplied and unverified.
+    // -------------------------------------------------------
+    // 5. Make authenticated Shop available to API routes
+    // -------------------------------------------------------
     req.shopifyShop = shop;
-    next();
+
+    return next();
+
   } catch (err) {
-    console.error("❌ verifyShopifyAuth error:", err.message);
-    res.status(401).json({ error: "Unauthorized" });
+    console.error(
+      "❌ verifyShopifyAuth error:",
+      err?.message || err
+    );
+
+    // Log Shopify's response server-side if token exchange failed,
+    // without exposing it to the browser.
+    if (err?.shopifyResponse) {
+      console.error(
+        "❌ Shopify token exchange response:",
+        err.shopifyResponse
+      );
+    }
+
+    return res.status(401).json({
+      error: "Unauthorized",
+    });
   }
 }
