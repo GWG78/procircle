@@ -164,7 +164,6 @@ app.post(
 
 app.get(
   "/api/test-currency",
-  verifyShopifyAuth,
   async (req, res) => {
     try {
       const result = await convertCurrency(
