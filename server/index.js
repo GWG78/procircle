@@ -41,6 +41,7 @@ const prisma = new PrismaClient();
 // 
 
 import { postUsageRecord } from "./services/usageRecord.js";
+import { fetchActiveSubscription } from "./services/partnerApi.js";
 import verifyShopifyAuth from "./middleware/verifyShopifyAuth.js";
 
 // =============================================
@@ -159,6 +160,38 @@ app.post(
     }
   }
 );
+
+app.get("/api/test-active-subscription", verifyShopifyAuth, async (req, res) => {
+  try {
+    const shop = req.shopifyShop;
+
+    const subscription = await fetchActiveSubscription(
+      shop.shopifyShopId
+    );
+
+    console.log(
+      `💳 App Pricing subscription for ${shop.shopDomain}:`,
+      subscription
+    );
+
+    res.json({
+      success: true,
+      shop: shop.shopDomain,
+      shopifyShopId: shop.shopifyShopId,
+      activeSubscription: subscription,
+    });
+  } catch (err) {
+    console.error(
+      "❌ Active subscription test failed:",
+      err?.message || err
+    );
+
+    res.status(500).json({
+      success: false,
+      error: err?.message || "Unknown error",
+    });
+  }
+});
 
 // =============================================
 // 🧩 ROUTES
