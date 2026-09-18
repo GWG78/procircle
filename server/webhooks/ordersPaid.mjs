@@ -3,25 +3,18 @@
 import { PrismaClient } from "@prisma/client";
 import { postUsageRecord } from "../services/usageRecord.js";
 import { fetchActiveSubscription } from "../services/partnerApi.js";
+import { convertCurrency } from "../services/currencyService.js";
 
 const prisma = new PrismaClient();
 
 const COMMISSION_METER_HANDLE = "procircle-commish";
+const SHOPIFY_BILLING_CURRENCY = "USD";
 
 export default async function ordersPaidHandler(topic, shop, body) {
   try {
     console.log(
       `💰 Order paid for shop: ${shop}, order: ${body.id}`
     );
-
-    console.log("💱 Order currency data:", {
-      currency: body.currency,
-      presentmentCurrency: body.presentment_currency,
-      subtotalPrice: body.subtotal_price,
-      totalPrice: body.total_price,
-      currentSubtotalPriceSet: body.current_subtotal_price_set,
-      subtotalPriceSet: body.subtotal_price_set,
-    });
 
     const discountCodes = body.discount_codes || [];
 
@@ -41,9 +34,36 @@ export default async function ordersPaidHandler(topic, shop, body) {
       return;
     }
 
+    /*
+     * Use Shopify's shop-money subtotal as the commission basis.
+     * This represents the order in the merchant's shop currency.
+     */
+    const shopMoney =
+      body.subtotal_price_set?.shop_money;
+
     const orderAmount = parseFloat(
-      body.subtotal_price ?? body.total_price ?? 0
+      shopMoney?.amount ??
+        body.subtotal_price ??
+        body.total_price ??
+        0
     );
+
+    const orderCurrency = String(
+      shopMoney?.currency_code ??
+        body.currency ??
+        ""
+    ).toUpperCase();
+
+    if (
+      !Number.isFinite(orderAmount) ||
+      orderAmount <= 0 ||
+      !orderCurrency
+    ) {
+      console.error(
+        `❌ Invalid order amount/currency for order ${body.id}`
+      );
+      return;
+    }
 
     const shopifyOrderId = String(body.id);
     const commissionEventKey =
@@ -80,11 +100,9 @@ export default async function ordersPaidHandler(topic, shop, body) {
     }
 
     /*
-     * Has this order already been linked to a redemption?
-     *
-     * Unlike the old implementation, finding it does not automatically
-     * mean billing is complete. A previous attempt may have linked the
-     * order but failed before Shopify accepted the commission event.
+     * Finding an existing redemption does not necessarily mean billing
+     * is complete. A previous attempt may have persisted the order and
+     * commission but failed before Shopify accepted the usage event.
      */
     let redemption = await prisma.redemption.findFirst({
       where: { shopifyOrderId },
@@ -119,11 +137,19 @@ export default async function ordersPaidHandler(topic, shop, body) {
     const commissionRate =
       shopRecord.commissionRate ?? 0.08;
 
+    /*
+     * Once calculated, the stored commission amount and currency are
+     * authoritative for retries.
+     */
     const commissionAmount =
       redemption.commissionAmount ??
-      parseFloat(
+      Number(
         (orderAmount * commissionRate).toFixed(2)
       );
+
+    const commissionCurrency =
+      redemption.commissionCurrency ??
+      orderCurrency;
 
     if (
       !Number.isFinite(commissionAmount) ||
@@ -136,25 +162,82 @@ export default async function ordersPaidHandler(topic, shop, body) {
     }
 
     /*
-     * Persist the order and calculated commission BEFORE contacting
-     * Shopify billing. If Shopify is temporarily unavailable, we retain
-     * everything needed to retry the commission later.
+     * Calculate the Shopify billing amount only once.
+     *
+     * Shopify App Pricing is currently denominated in USD. The original
+     * commission remains stored in the merchant's order currency.
+     *
+     * If this webhook is retried, reuse the stored USD amount and FX
+     * rate rather than fetching a new exchange rate.
+     */
+    let shopifyBillingAmount =
+      redemption.shopifyBillingAmount;
+
+    let shopifyExchangeRate =
+      redemption.shopifyExchangeRate;
+
+    let shopifyExchangeRateAt =
+      redemption.shopifyExchangeRateAt;
+
+    if (shopifyBillingAmount == null) {
+      const conversion = await convertCurrency(
+        commissionAmount,
+        commissionCurrency,
+        SHOPIFY_BILLING_CURRENCY
+      );
+
+      shopifyBillingAmount =
+        conversion.convertedAmount;
+
+      shopifyExchangeRate =
+        conversion.rate;
+
+      shopifyExchangeRateAt =
+        new Date(conversion.rateTimestamp);
+    }
+
+    if (
+      !Number.isFinite(shopifyBillingAmount) ||
+      shopifyBillingAmount <= 0
+    ) {
+      console.error(
+        `❌ Invalid Shopify billing amount for order ${shopifyOrderId}`
+      );
+      return;
+    }
+
+    /*
+     * Persist all financial values BEFORE contacting Shopify billing.
+     * This makes retries deterministic and preserves the exact FX rate
+     * used to calculate the merchant charge.
      */
     redemption = await prisma.redemption.update({
       where: { id: redemption.id },
       data: {
         shopifyOrderId,
         orderAmount,
+        orderCurrency,
         orderCompletedAt: new Date(
           body.created_at || Date.now()
         ),
+
         commissionAmount,
+        commissionCurrency,
+
+        shopifyBillingAmount,
+        shopifyBillingCurrency:
+          SHOPIFY_BILLING_CURRENCY,
+        shopifyExchangeRate,
+        shopifyExchangeRateAt,
+
         commissionEventKey,
       },
     });
 
     console.log(
-      `✅ Redemption ${redemption.id} linked to order ${shopifyOrderId}; commission pending: ${commissionAmount.toFixed(2)}`
+      `✅ Redemption ${redemption.id} linked to order ${shopifyOrderId}; ` +
+        `commission pending: ${commissionAmount.toFixed(2)} ${commissionCurrency} ` +
+        `→ ${shopifyBillingAmount.toFixed(2)} ${SHOPIFY_BILLING_CURRENCY}`
     );
 
     /*
@@ -187,16 +270,15 @@ export default async function ordersPaidHandler(topic, shop, body) {
     }
 
     /*
-     * postUsageRecord uses a deterministic Shopify idempotency key:
+     * The Shopify meter is priced at USD 1 per unit, so the quantity
+     * submitted here is the stored USD billing amount.
      *
+     * postUsageRecord uses the deterministic idempotency key:
      * procircle-commish-{shopifyOrderId}
-     *
-     * Re-submitting the same order therefore cannot create a second
-     * usage event.
      */
     const usageResult = await postUsageRecord(
       shopRecord.shopifyShopId,
-      commissionAmount,
+      shopifyBillingAmount,
       shopifyOrderId
     );
 
@@ -215,7 +297,9 @@ export default async function ordersPaidHandler(topic, shop, body) {
     });
 
     console.log(
-      `💰 ProCircle commission reported for order ${shopifyOrderId}: ${commissionAmount.toFixed(2)}`
+      `💰 ProCircle commission reported for order ${shopifyOrderId}: ` +
+        `${commissionAmount.toFixed(2)} ${commissionCurrency} ` +
+        `→ ${shopifyBillingAmount.toFixed(2)} ${SHOPIFY_BILLING_CURRENCY}`
     );
   } catch (err) {
     console.error(
