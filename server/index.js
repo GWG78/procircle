@@ -52,7 +52,7 @@ console.log("🔧 Loading index.js");
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "https://admin.shopify.com");
   res.header("Access-Control-Allow-Credentials", "true");
-  res.header("Access-Control-Allow-Headers", "Content-Type, X-Requested-With");
+  res.header("Access-Control-Allow-Headers", "Content-Type, X-Requested-With, Authorization");
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
 
   if (req.method === "OPTIONS") return res.sendStatus(200);
@@ -122,28 +122,16 @@ app.use("/api/collections", collectionsRoutes);
 app.use("/api/campaigns", campaignRoutes);
 app.use("/api/members", memberRoutes);
 
+
+
 // =============================================
 // 🌟 Embedded App Root
+// Shopify-managed installation: always load the
+// React app. App Bridge ID-token authentication
+// initialises the shop through the API middleware.
 // =============================================
 
-app.get("/", async (req, res) => {
-  const shop = req.query.shop;
-
-  if (!shop) {
-    return res.status(400).send("Missing shop");
-  }
-
-  const existing = await prisma.shop.findUnique({
-    where: { shopDomain: shop },
-  });
-
-  // 🔐 NOT INSTALLED → START OAUTH
-  if (!existing) {
-    console.log("🔁 Redirecting to /auth for", shop);
-    return res.redirect(`/auth?shop=${shop}`);
-  }
-
-  // ✅ INSTALLED → LOAD REACT APP
+app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
