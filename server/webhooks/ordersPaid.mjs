@@ -14,6 +14,15 @@ export default async function ordersPaidHandler(topic, shop, body) {
       `💰 Order paid for shop: ${shop}, order: ${body.id}`
     );
 
+    console.log("💱 Order currency data:", {
+      currency: body.currency,
+      presentmentCurrency: body.presentment_currency,
+      subtotalPrice: body.subtotal_price,
+      totalPrice: body.total_price,
+      currentSubtotalPriceSet: body.current_subtotal_price_set,
+      subtotalPriceSet: body.subtotal_price_set,
+    });
+
     const discountCodes = body.discount_codes || [];
 
     if (discountCodes.length === 0) {
