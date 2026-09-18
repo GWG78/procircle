@@ -105,9 +105,12 @@ model Redemption {
   accessExpiresAt  DateTime?
   reminderSentAt   DateTime?
 
-  shopifyOrderId   String?
-  orderAmount      Float?
-  orderCompletedAt DateTime?
+  shopifyOrderId       String?
+  orderAmount          Float?
+  orderCompletedAt     DateTime?
+  commissionAmount     Float?
+  commissionReportedAt DateTime?
+  commissionEventKey   String?   @unique
 }
 
 model Member {
