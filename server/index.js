@@ -2,6 +2,7 @@ console.log("🚨 INDEX.JS VERSION 2025-01-ENSURE-REMOVED");
 // =============================================
 // 🌍 Load environment variables
 // =============================================
+
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -183,6 +184,64 @@ app.get("/api/test-active-subscription", verifyShopifyAuth, async (req, res) => 
   } catch (err) {
     console.error(
       "❌ Active subscription test failed:",
+      err?.message || err
+    );
+
+    res.status(500).json({
+      success: false,
+      error: err?.message || "Unknown error",
+    });
+  }
+});
+
+app.get("/api/test-legacy-subscription", verifyShopifyAuth, async (req, res) => {
+  try {
+    const shop = req.shopifyShop;
+
+    const client = new shopify.clients.Graphql({
+      session: {
+        shop: shop.shopDomain,
+        accessToken: shop.accessToken,
+      },
+    });
+
+    const response = await client.request(`
+      query {
+        currentAppInstallation {
+          activeSubscriptions {
+            id
+            name
+            status
+            test
+            lineItems {
+              id
+              plan {
+                pricingDetails {
+                  __typename
+                }
+              }
+            }
+          }
+        }
+      }
+    `);
+
+    const subscriptions =
+      response.data?.currentAppInstallation?.activeSubscriptions ?? [];
+
+    console.log(
+      `💳 Legacy Billing API subscriptions for ${shop.shopDomain}:`,
+      subscriptions
+    );
+
+    res.json({
+      success: true,
+      shop: shop.shopDomain,
+      activeSubscriptions: subscriptions,
+    });
+  } catch (err) {
+    console.error(
+      "❌ Legacy subscription test failed:",
       err?.message || err
     );
 
