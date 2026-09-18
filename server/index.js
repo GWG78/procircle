@@ -37,6 +37,13 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 // =============================================
+// payment testing
+// 
+
+import { postUsageRecord } from "./services/usageRecord.js";
+import verifyShopifyAuth from "./middleware/verifyShopifyAuth.js";
+
+// =============================================
 // 🚀 Server Setup
 // =============================================
 const app = express();
@@ -106,6 +113,52 @@ app.get("/__db_test", async (req, res) => {
     });
   }
 });
+
+
+// TEMPORARY: Shopify App Pricing test
+app.post(
+  "/api/test-billing-event",
+  verifyShopifyAuth,
+  async (req, res) => {
+    try {
+      const shop = req.shopifyShop;
+
+      if (!shop?.shopifyShopId) {
+        return res.status(400).json({
+          success: false,
+          error: "Shopify Shop ID is missing",
+        });
+      }
+
+      const result = await postUsageRecord(
+        shop.shopifyShopId,
+        1.0,
+        "billing-test-001"
+      );
+
+      if (!result) {
+        return res.status(500).json({
+          success: false,
+          error: "Shopify App Event was not accepted",
+        });
+      }
+
+      return res.json({
+        success: true,
+        shop: shop.shopDomain,
+        shopifyShopId: shop.shopifyShopId,
+        result,
+      });
+    } catch (err) {
+      console.error("❌ Billing test endpoint error:", err);
+
+      return res.status(500).json({
+        success: false,
+        error: err.message,
+      });
+    }
+  }
+);
 
 // =============================================
 // 🧩 ROUTES
