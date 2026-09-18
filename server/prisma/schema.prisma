@@ -117,6 +117,7 @@ model Redemption {
   shopifyBillingAmount     Float?
   shopifyBillingCurrency   String?
   shopifyExchangeRate      Float?
+  shopifyExchangeRateAt    DateTime?
 
   commissionReportedAt     DateTime?
   commissionEventKey       String?   @unique
