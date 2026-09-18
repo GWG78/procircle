@@ -17,6 +17,7 @@ import prisma from "../prismaClient.js";
 import {
   exchangeIdTokenForOfflineToken,
   ensureFreshOfflineAccessToken,
+  ensureShopifyShopId,
 } from "../services/shopifyTokenService.js";
 
 export default async function verifyShopifyAuth(req, res, next) {
@@ -85,6 +86,7 @@ export default async function verifyShopifyAuth(req, res, next) {
     // If this shop uses an expiring offline token, make sure it
       // remains valid before allowing the request to continue.
       shop = await ensureFreshOfflineAccessToken(shop);
+      shop = await ensureShopifyShopId(shop);
 
     // -------------------------------------------------------
     // 5. Make authenticated Shop available to API routes

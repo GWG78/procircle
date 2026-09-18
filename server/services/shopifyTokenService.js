@@ -14,6 +14,111 @@ function expiryFromSeconds(seconds) {
 }
 
 /**
+ * Fetch the canonical Shopify Shop GID using the Admin GraphQL API.
+ *
+ * Example:
+ * gid://shopify/Shop/123456789
+ */
+async function fetchShopifyShopId(shopDomain, accessToken) {
+  const apiVersion =
+    process.env.SHOPIFY_API_VERSION || "2026-07";
+
+  const response = await fetch(
+    `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-Shopify-Access-Token": accessToken,
+      },
+      body: JSON.stringify({
+        query: `
+          query ProCircleShopId {
+            shop {
+              id
+            }
+          }
+        `,
+      }),
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error = new Error(
+      `Failed to fetch Shopify Shop ID: ${response.status}`
+    );
+
+    error.status = response.status;
+    error.shopifyResponse = data;
+
+    throw error;
+  }
+
+  if (data.errors?.length) {
+    const error = new Error(
+      `Failed to fetch Shopify Shop ID for ${shopDomain}`
+    );
+
+    error.shopifyResponse = data.errors;
+
+    throw error;
+  }
+
+  const shopifyShopId = data.data?.shop?.id;
+
+  if (!shopifyShopId) {
+    throw new Error(
+      `Shopify Shop ID missing from Admin API response for ${shopDomain}`
+    );
+  }
+
+  return shopifyShopId;
+}
+
+/**
+ * Ensure that ProCircle has stored Shopify's canonical Shop ID.
+ *
+ * Existing installations are automatically backfilled the next
+ * time an authenticated request passes through the middleware.
+ */
+export async function ensureShopifyShopId(shop) {
+  if (shop?.shopifyShopId) {
+    return shop;
+  }
+
+  if (!shop?.shopDomain || !shop?.accessToken) {
+    throw new Error(
+      "Cannot fetch Shopify Shop ID: missing shop domain or access token"
+    );
+  }
+
+  console.log(
+    `🏪 No Shopify Shop ID stored for ${shop.shopDomain}; fetching from Shopify`
+  );
+
+  const shopifyShopId = await fetchShopifyShopId(
+    shop.shopDomain,
+    shop.accessToken
+  );
+
+  const updatedShop = await prisma.shop.update({
+    where: { id: shop.id },
+    data: {
+      shopifyShopId,
+    },
+  });
+
+  console.log(
+    `✅ Shopify Shop ID stored for ${shop.shopDomain}: ${shopifyShopId}`
+  );
+
+  return updatedShop;
+}
+
+/**
  * Exchange an App Bridge ID token for an expiring offline
  * Shopify Admin API access token.
  *
@@ -58,7 +163,7 @@ export async function exchangeIdTokenForOfflineToken(
     throw error;
   }
 
-  const shop = await prisma.shop.upsert({
+  let shop = await prisma.shop.upsert({
     where: { shopDomain },
 
     update: {
@@ -84,6 +189,9 @@ export async function exchangeIdTokenForOfflineToken(
     },
   });
 
+  // A new installation now gets its Shopify Shop ID immediately.
+  shop = await ensureShopifyShopId(shop);
+
   return shop;
 }
 
@@ -96,7 +204,9 @@ export async function exchangeIdTokenForOfflineToken(
  */
 export async function refreshOfflineAccessToken(shop) {
   if (!shop?.shopDomain) {
-    throw new Error("Cannot refresh Shopify token: missing shop domain");
+    throw new Error(
+      "Cannot refresh Shopify token: missing shop domain"
+    );
   }
 
   if (!shop.refreshToken) {
@@ -125,14 +235,17 @@ export async function refreshOfflineAccessToken(shop) {
     client_secret: process.env.SHOPIFY_API_SECRET,
   });
 
-  const response = await fetch(TOKEN_ENDPOINT(shop.shopDomain), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    },
-    body,
-  });
+  const response = await fetch(
+    TOKEN_ENDPOINT(shop.shopDomain),
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body,
+    }
+  );
 
   const data = await response.json();
 
@@ -162,7 +275,8 @@ export async function refreshOfflineAccessToken(shop) {
 
     data: {
       accessToken: data.access_token,
-      accessTokenExpiresAt: expiryFromSeconds(data.expires_in),
+      accessTokenExpiresAt:
+        expiryFromSeconds(data.expires_in),
       refreshToken: data.refresh_token,
       refreshTokenExpiresAt:
         expiryFromSeconds(data.refresh_token_expires_in),
@@ -186,7 +300,9 @@ export async function refreshOfflineAccessToken(shop) {
 export async function ensureFreshOfflineAccessToken(shop) {
   if (!shop?.accessToken) {
     throw new Error(
-      `Cannot ensure Shopify token: no access token for ${shop?.shopDomain || "unknown shop"}`
+      `Cannot ensure Shopify token: no access token for ${
+        shop?.shopDomain || "unknown shop"
+      }`
     );
   }
 
@@ -197,7 +313,8 @@ export async function ensureFreshOfflineAccessToken(shop) {
   }
 
   const refreshAt =
-    shop.accessTokenExpiresAt.getTime() - REFRESH_BUFFER_MS;
+    shop.accessTokenExpiresAt.getTime() -
+    REFRESH_BUFFER_MS;
 
   if (Date.now() < refreshAt) {
     return shop;

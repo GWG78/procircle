@@ -12,6 +12,7 @@ datasource db {
 model Shop {
   id          Int       @id @default(autoincrement())
   shopDomain  String    @unique
+  shopifyShopId String?
 
   accessToken           String?
   accessTokenExpiresAt  DateTime?

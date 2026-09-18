@@ -1,57 +1,157 @@
-// services/usageRecord.js
+// server/services/usageRecord.js
 //
-// Posts a commission charge against a shop's active billing subscription.
-// Called from webhooks/ordersPaid.mjs after a redemption's order is linked.
+// Reports ProCircle commission to Shopify App Pricing using
+// Shopify's App Events API.
+//
+// The Shopify App Pricing usage meter handle is:
+// procircle-commish
 
-import { shopify } from "../shopify.js";
+const APP_EVENTS_TOKEN_URL =
+  "https://api.shopify.com/auth/access_token";
 
-const USAGE_RECORD_MUTATION = `
-  mutation appUsageRecordCreate($subscriptionLineItemId: ID!, $price: MoneyInput!, $description: String!) {
-    appUsageRecordCreate(subscriptionLineItemId: $subscriptionLineItemId, price: $price, description: $description) {
-      appUsageRecord {
-        id
-      }
-      userErrors {
-        field
-        message
-      }
-    }
+const APP_EVENTS_URL =
+  "https://api.shopify.com/app/unstable/events";
+
+const EVENT_HANDLE = "procircle-commish";
+
+// Cache the App Events bearer token in memory so we don't request
+// a new one for every commission event.
+let cachedToken = null;
+let cachedTokenExpiresAt = 0;
+
+async function getAppEventsAccessToken() {
+  // Give ourselves a 60-second safety margin.
+  if (
+    cachedToken &&
+    Date.now() < cachedTokenExpiresAt - 60_000
+  ) {
+    return cachedToken;
   }
-`;
+
+  const response = await fetch(APP_EVENTS_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      client_id: process.env.SHOPIFY_API_KEY,
+      client_secret: process.env.SHOPIFY_API_SECRET,
+      grant_type: "client_credentials",
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.access_token) {
+    const error = new Error(
+      `Shopify App Events authentication failed: ${response.status}`
+    );
+
+    error.status = response.status;
+    error.shopifyResponse = data;
+
+    throw error;
+  }
+
+  cachedToken = data.access_token;
+
+  // Shopify normally supplies expires_in. If it isn't present,
+  // don't retain the token beyond this request.
+  cachedTokenExpiresAt = data.expires_in
+    ? Date.now() + Number(data.expires_in) * 1000
+    : 0;
+
+  return cachedToken;
+}
 
 /**
- * subscriptionLineItemId is Shop.billingSubscriptionId — despite the field
- * name, it holds the app subscription *line item* id (see
- * services/billing.js), which is what this mutation actually requires.
- * Never throws — a failed usage post is logged and returned as null so a
- * webhook handler can decide how to react without crashing.
+ * Report a ProCircle commission to Shopify App Pricing.
+ *
+ * shopId:
+ *   Shopify numeric shop ID or gid://shopify/Shop/... ID.
+ *
+ * amount:
+ *   Commission amount. Because commissions can contain decimals,
+ *   Shopify requires fractional values to be sent as strings.
+ *
+ * orderId:
+ *   Used to construct a permanent idempotency key so the same
+ *   Shopify order cannot accidentally be billed twice.
  */
-export async function postUsageRecord(shop, accessToken, subscriptionLineItemId, amount, orderId) {
+export async function postUsageRecord(
+  shopId,
+  amount,
+  orderId
+) {
   try {
-    const client = new shopify.clients.Graphql({ session: { shop, accessToken } });
-
-    const response = await client.request(USAGE_RECORD_MUTATION, {
-      variables: {
-        subscriptionLineItemId,
-        price: {
-          amount: amount.toFixed(2),
-          currencyCode: "EUR",
-        },
-        description: `ProCircle commission on order ${orderId}`,
-      },
-    });
-
-    const result = response.data?.appUsageRecordCreate;
-
-    if (result?.userErrors?.length > 0) {
-      console.error(`❌ Usage record error for order ${orderId}:`, result.userErrors);
-      return null;
+    if (!shopId) {
+      throw new Error(
+        `Cannot report commission for order ${orderId}: missing Shopify shop ID`
+      );
     }
 
-    console.log(`✅ Usage record posted for order ${orderId}: €${amount}`);
-    return result?.appUsageRecord?.id || null;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error(
+        `Cannot report commission for order ${orderId}: invalid amount`
+      );
+    }
+
+    const accessToken =
+      await getAppEventsAccessToken();
+
+    const idempotencyKey =
+      `procircle-commish-${orderId}`;
+
+    const response = await fetch(APP_EVENTS_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        shop_id: String(shopId),
+        event_handle: EVENT_HANDLE,
+        timestamp: new Date().toISOString(),
+        idempotency_key: idempotencyKey,
+        attributes: {
+          value: amount.toFixed(2),
+        },
+      }),
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      const error = new Error(
+        `Shopify App Event failed: ${response.status}`
+      );
+
+      error.status = response.status;
+      error.shopifyResponse = data;
+
+      throw error;
+    }
+
+    console.log(
+      `✅ ProCircle commission event accepted for order ${orderId}: ${amount.toFixed(2)}`
+    );
+
+    return data;
   } catch (err) {
-    console.error(`❌ postUsageRecord failed for order ${orderId}:`, err);
+    console.error(
+      `❌ postUsageRecord failed for order ${orderId}:`,
+      err?.message || err
+    );
+
+    if (err?.shopifyResponse) {
+      console.error(
+        "❌ Shopify App Events response:",
+        err.shopifyResponse
+      );
+    }
+
     return null;
   }
 }
