@@ -120,7 +120,7 @@ export async function refreshOfflineAccessToken(shop) {
 
   const body = new URLSearchParams({
     grant_type: "refresh_token",
-    access_token: shop.refreshToken,
+    refresh_token: shop.refreshToken,
     client_id: process.env.SHOPIFY_API_KEY,
     client_secret: process.env.SHOPIFY_API_SECRET,
   });
