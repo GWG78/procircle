@@ -40,7 +40,7 @@ const prisma = new PrismaClient();
 // =============================================
 // payment testing
 // 
-
+import { convertCurrency } from "./services/currencyService.js";
 import { postUsageRecord } from "./services/usageRecord.js";
 import { fetchActiveSubscription } from "./services/partnerApi.js";
 import verifyShopifyAuth from "./middleware/verifyShopifyAuth.js";
@@ -155,6 +155,37 @@ app.post(
       console.error("❌ Billing test endpoint error:", err);
 
       return res.status(500).json({
+        success: false,
+        error: err.message,
+      });
+    }
+  }
+);
+
+app.get(
+  "/api/test-currency",
+  verifyShopifyAuth,
+  async (req, res) => {
+    try {
+      const result = await convertCurrency(
+        8,
+        "EUR",
+        "USD"
+      );
+
+      console.log("💱 CurrencyAPI test:", result);
+
+      res.json({
+        success: true,
+        result,
+      });
+    } catch (err) {
+      console.error(
+        "❌ CurrencyAPI test failed:",
+        err
+      );
+
+      res.status(500).json({
         success: false,
         error: err.message,
       });
