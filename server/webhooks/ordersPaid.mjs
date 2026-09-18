@@ -89,18 +89,29 @@ export default async function ordersPaidHandler(topic, shop, body) {
       return;
     }
 
-    if (!shopRecord.billingSubscriptionId) {
-      console.warn(`⚠️ No billing subscription for shop ${shop} — commission not charged`);
-      return;
-    }
+   if (!shopRecord.shopifyShopId) {
+  console.warn(
+    `⚠️ No Shopify Shop ID for ${shop} — commission event not sent`
+  );
+  return;
+}
 
-    await postUsageRecord(
-      shop,
-      shopRecord.accessToken,
-      shopRecord.billingSubscriptionId,
-      commissionAmount,
-      shopifyOrderId
-    );
+const usageResult = await postUsageRecord(
+  shopRecord.shopifyShopId,
+  commissionAmount,
+  shopifyOrderId
+);
+
+if (!usageResult) {
+  console.error(
+    `❌ Commission event was not accepted for order ${shopifyOrderId}`
+  );
+  return;
+}
+
+console.log(
+  `💰 ProCircle commission reported for order ${shopifyOrderId}: ${commissionAmount.toFixed(2)}`
+);
   } catch (err) {
     console.error(`❌ ordersPaid handler error for shop ${shop}:`, err);
   }
