@@ -10,7 +10,7 @@ const APP_EVENTS_TOKEN_URL =
   "https://api.shopify.com/auth/access_token";
 
 const APP_EVENTS_URL =
-  "https://api.shopify.com/app/unstable/events";
+  "https://api.shopify.com/app/2026-10/events";
 
 const EVENT_HANDLE = "procircle-commish";
 
