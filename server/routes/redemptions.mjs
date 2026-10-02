@@ -4,6 +4,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { PrismaClient } from "@prisma/client";
 import { getOffersForMember, checkEligibility } from "../services/eligibilityService.js";
 import { getOrCreateCustomer, addMemberToCampaignDiscount } from "../services/shopifyCustomerService.js";
+import { ensureFreshOfflineAccessToken } from "../services/shopifyTokenService.js";
 import { sendCodeEmail, sendCampaignLimitAlertEmail } from "../services/resendService.js";
 import { getOrFetchShopName } from "../services/shopService.js";
 import { logDataAccess } from "../utils/accessLog.js";
@@ -142,9 +143,17 @@ router.post("/request", ipLimiter, emailLimiter, async (req, res) => {
     // failure and an email failure were previously indistinguishable to
     // the caller, both just resulting in "You'll receive your code by
     // email shortly" even when that was false).
+    //
+    // campaign.shop is a plain Prisma read from earlier in this handler —
+    // unlike the embedded-admin-app routes (gated by verifyShopifyAuth,
+    // which refreshes via ensureFreshOfflineAccessToken on every request),
+    // nothing upstream of this shared-secret-gated route ever refreshes
+    // the shop's offline token. Without this call, an expired token fails
+    // every Shopify call below with an opaque auth error.
     try {
-      const shopifyCustomerId = await getOrCreateCustomer(campaign.shop, member);
-      await addMemberToCampaignDiscount(campaign.shop, campaign, shopifyCustomerId);
+      const freshShop = await ensureFreshOfflineAccessToken(campaign.shop);
+      const shopifyCustomerId = await getOrCreateCustomer(freshShop, member);
+      await addMemberToCampaignDiscount(freshShop, campaign, shopifyCustomerId);
     } catch (err) {
       console.error(`❌ Redemption ${redemption.id} Shopify fulfillment failed:`, err);
       try {
