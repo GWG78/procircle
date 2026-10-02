@@ -13,16 +13,31 @@ import { getOrFetchShopName } from "./shopService.js";
 
 const prisma = new PrismaClient();
 
+// Every CampaignFilter.filterType must be classified into exactly one of
+// these two sets. MEMBER_ATTRIBUTE_FILTER_TYPES are checked against the
+// member (used by both memberMatchesFilters and countMatchingMembers);
+// PRODUCT_SCOPE_FILTER_TYPES restrict which products a discount applies
+// to — a Shopify-side concern, not a member-eligibility one — and are the
+// only types memberMatchesFilters skips. Anything in neither set (a new
+// filterType nobody's classified yet) falls through to the member check
+// below and fails closed: Member has no matching column, so it's treated
+// as a restriction no member can satisfy, rather than silently ignored.
+const MEMBER_ATTRIBUTE_FILTER_TYPES = new Set(["role", "country", "resort"]);
+const PRODUCT_SCOPE_FILTER_TYPES = new Set(["collection"]);
+
 /**
  * Groups a campaign's filters by filterType and checks that the member
  * matches at least one value in every group. A campaign with no filters
- * is open to all members.
+ * is open to all members. PRODUCT_SCOPE_FILTER_TYPES (collection
+ * restrictions) are skipped — see the comment above the two filter-type
+ * sets for why, and for the fail-closed handling of anything else.
  */
 function memberMatchesFilters(member, filters) {
   if (!filters.length) return true;
 
   const groups = new Map();
   for (const filter of filters) {
+    if (PRODUCT_SCOPE_FILTER_TYPES.has(filter.filterType)) continue;
     if (!groups.has(filter.filterType)) groups.set(filter.filterType, []);
     groups.get(filter.filterType).push(filter.value);
   }
@@ -175,11 +190,6 @@ async function checkEligibility(member, campaignId) {
 
   return { eligible: true, reason: "ok" };
 }
-
-// Filter types that correspond to an actual Member column — "collection"
-// filters restrict which products a discount applies to (a Shopify-side
-// concern), not which members are eligible, so they're excluded here.
-const MEMBER_ATTRIBUTE_FILTER_TYPES = new Set(["role", "country", "resort"]);
 
 /**
  * Counts verified members matching a set of {filterType, value} pairs,
