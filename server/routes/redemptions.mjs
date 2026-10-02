@@ -164,6 +164,15 @@ router.post("/request", ipLimiter, emailLimiter, async (req, res) => {
       } catch (updateErr) {
         console.error(`❌ Failed to mark redemption ${redemption.id} as failed:`, updateErr);
       }
+
+      // Distinguish "the campaign's discount isn't usable right now" (see
+      // shopifyCustomerService.addMemberToCampaignDiscount) from a generic
+      // fulfillment failure, so the member-area JS can show a specific
+      // message instead of the catch-all retry prompt.
+      if (err.reason === "campaign_unavailable") {
+        return res.status(403).json({ success: false, reason: "campaign_unavailable" });
+      }
+
       return res.status(500).json({ success: false, error: "Failed to grant discount access. Please try again." });
     }
 
@@ -182,6 +191,7 @@ router.post("/request", ipLimiter, emailLimiter, async (req, res) => {
       discountLink: campaign.discountLink,
       campaignName: campaign.name,
       brandName,
+      accessExpiresAt: redemption.accessExpiresAt,
     });
 
     try {

@@ -61,14 +61,19 @@ async function sendCodeEmail({
   discountLink,
   campaignName,
   brandName,
+  accessExpiresAt,
 }) {
   const greetingName = memberFirstName || "there";
+  const expiryText = accessExpiresAt
+    ? new Date(accessExpiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+    : null;
 
   const html = `
     <p>Hi ${greetingName},</p>
     <p>Your <strong>${discountAmount} discount</strong> at ${brandName} is ready — click below to apply it automatically at checkout:</p>
     <p><a href="${discountLink}" style="display:inline-block;padding:10px 20px;background:#111;color:#fff;text-decoration:none;border-radius:4px;">Get my discount</a></p>
     <p>Or enter this code at checkout: <strong>${discountCode}</strong></p>
+    ${expiryText ? `<p>This discount is valid until <strong>${expiryText}</strong>.</p>` : ""}
     <p>Questions? Reach us at <a href="mailto:hello@procircle.io">hello@procircle.io</a>.</p>
   `;
 
@@ -78,6 +83,22 @@ async function sendCodeEmail({
     console.error(
       `[ALERT] sendCodeEmail: member ${memberEmail} was granted access but will NOT receive their code email. Campaign: ${campaignName}.`
     );
+
+    // Best-effort notification to the team — isolated so a failure here
+    // (e.g. the same Resend outage that just caused the member's own
+    // email to fail) never throws back into the redemption flow. The
+    // console [ALERT] above is the guaranteed signal; this is a bonus.
+    try {
+      await sendEmail(
+        "hi@procircle.io",
+        `[ALERT] Code email failed for ${memberEmail}`,
+        `<p>The discount-code email to <strong>${memberEmail}</strong> failed to send.</p>
+         <p>Campaign: ${campaignName}<br>Brand: ${brandName}</p>
+         <p>Check the Render logs around this time for the Resend error detail.</p>`
+      );
+    } catch (notifyErr) {
+      console.error(`[ALERT] sendCodeEmail: failure-notification email also failed — ${notifyErr.message}`);
+    }
   }
 }
 

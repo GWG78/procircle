@@ -73,6 +73,16 @@ const DISCOUNT_CODE_BASIC_UPDATE = `
   }
 `;
 
+const DISCOUNT_STATUS_QUERY = `
+  query($id: ID!) {
+    discountNode(id: $id) {
+      discount {
+        ... on DiscountCodeBasic { status }
+      }
+    }
+  }
+`;
+
 async function customerByEmail(shop, email) {
   const result = await shopifyGraphQL(shop, CUSTOMER_BY_EMAIL, {
     query: `email:${email}`,
@@ -172,6 +182,16 @@ async function getOrCreateSentinelCustomer(shop, { email, firstName, lastName })
 /**
  * Adds this customer to the campaign's discount customer-selection list,
  * so they become eligible to use the campaign's single shared discount code.
+ *
+ * Checks the discount's live status first and refuses to add anyone if
+ * it isn't ACTIVE — Shopify accepts a customerSelection change against an
+ * inactive/expired discount with no error (confirmed 2026-10-02, campaign
+ * 49: a member was added and marked "confirmed" against a discount that
+ * had already gone EXPIRED), so without this check a member can be
+ * granted access to a discount that won't actually apply at checkout.
+ * Throws an error tagged { reason: "campaign_unavailable" } in that case,
+ * which routes/redemptions.mjs's Stage 1 catch uses to return a distinct
+ * response instead of the generic failure message.
  */
 async function addMemberToCampaignDiscount(shop, campaign, shopifyCustomerId) {
   if (!campaign.shopifyDiscountId) {
@@ -179,6 +199,19 @@ async function addMemberToCampaignDiscount(shop, campaign, shopifyCustomerId) {
       `⚠️ Campaign ${campaign.id} (${campaign.slug}) has no shopifyDiscountId — it wasn't properly initialised. Skipping customer-selection update.`
     );
     return;
+  }
+
+  const statusResult = await shopifyGraphQL(shop, DISCOUNT_STATUS_QUERY, { id: campaign.shopifyDiscountId });
+  if (!statusResult.ok) {
+    throw new Error(`Shopify discount status lookup failed: ${JSON.stringify(statusResult.details)}`);
+  }
+
+  const liveStatus = statusResult.data?.discountNode?.discount?.status;
+  if (liveStatus !== "ACTIVE") {
+    throw Object.assign(
+      new Error(`Shopify discount ${campaign.shopifyDiscountId} is not ACTIVE (status: ${liveStatus ?? "unknown"})`),
+      { reason: "campaign_unavailable" }
+    );
   }
 
   const result = await shopifyGraphQL(shop, DISCOUNT_CODE_BASIC_UPDATE, {
