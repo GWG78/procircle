@@ -25,6 +25,50 @@ const DISCOUNT_CODE_BASIC_CREATE = `
   }
 `;
 
+const CODE_DISCOUNT_NODE_BY_CODE = `
+  query($code: String!) {
+    codeDiscountNodeByCode(code: $code) { id }
+  }
+`;
+
+// Excludes 0/O, 1/I/L — the ambiguous-on-a-screenshot set, same reasoning
+// as any human-facing short code.
+const UNAMBIGUOUS_CHARS = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+const CODE_SUFFIX_LENGTH = 4;
+const MAX_CODE_GENERATION_ATTEMPTS = 5;
+
+function randomCodeSuffix() {
+  let suffix = "";
+  for (let i = 0; i < CODE_SUFFIX_LENGTH; i++) {
+    suffix += UNAMBIGUOUS_CHARS[Math.floor(Math.random() * UNAMBIGUOUS_CHARS.length)];
+  }
+  return suffix;
+}
+
+function discountValueSuffix(campaign) {
+  const rounded = Math.round(campaign.discountValue);
+  return campaign.discountType === "fixed" ? `${rounded}F` : `${rounded}`;
+}
+
+/**
+ * Generates a PC-XXXX-<value> code and confirms it's unused on this shop
+ * before returning it. A theoretical check-then-create race exists
+ * (another creation claiming the same code between the check and the
+ * mutation in createCampaignDiscount) but campaign creation is a single-
+ * admin, low-frequency action — not worth a second check-on-create layer.
+ */
+async function generateUniqueDiscountCode(shop, campaign) {
+  for (let attempt = 0; attempt < MAX_CODE_GENERATION_ATTEMPTS; attempt++) {
+    const candidate = `PC-${randomCodeSuffix()}-${discountValueSuffix(campaign)}`;
+    const data = await shopifyGraphQL(shop, CODE_DISCOUNT_NODE_BY_CODE, { code: candidate });
+    if (!data?.codeDiscountNodeByCode) {
+      return candidate;
+    }
+    console.warn(`⚠️ Discount code collision on ${candidate}, retrying (attempt ${attempt + 1})`);
+  }
+  throw new Error(`Could not generate a unique discount code after ${MAX_CODE_GENERATION_ATTEMPTS} attempts`);
+}
+
 const DISCOUNT_CODE_ACTIVATE = `
   mutation ActivateCampaignDiscount($id: ID!) {
     discountCodeActivate(id: $id) {
@@ -102,7 +146,7 @@ async function shopifyGraphQL(shop, query, variables) {
  * @returns {Promise<{ discountCode: string, discountLink: string, shopifyDiscountId: string }>}
  */
 async function createCampaignDiscount(shop, campaign, sentinelCustomerId, collectionGids = []) {
-  const discountCode = `PROCIRCLE-${campaign.slug.toUpperCase()}`;
+  const discountCode = await generateUniqueDiscountCode(shop, campaign);
 
   const input = {
     title: `ProCircle — ${campaign.name}`,
