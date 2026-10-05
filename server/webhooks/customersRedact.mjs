@@ -13,6 +13,12 @@ export default async function customersRedactHandler(topic, shop, body) {
   );
 
   try {
+    const shopRecord = await prisma.shop.findUnique({ where: { shopDomain: shop } });
+    if (!shopRecord) {
+      console.log(`⚪ No Shop record found for ${shop}. Nothing to redact.`);
+      return;
+    }
+
     let member = customerEmail
       ? await prisma.member.findUnique({ where: { email: customerEmail } })
       : null;
@@ -20,14 +26,11 @@ export default async function customersRedactHandler(topic, shop, body) {
     if (!member && shopifyCustomerId) {
       // shopifyCustomerId isn't globally unique in our schema (only the
       // memberId+shopId pair is), so resolve it scoped to this shop.
-      const shopRecord = await prisma.shop.findUnique({ where: { shopDomain: shop } });
-      if (shopRecord) {
-        const link = await prisma.memberShopifyLink.findFirst({
-          where: { shopId: shopRecord.id, shopifyCustomerId },
-          include: { member: true },
-        });
-        member = link?.member || null;
-      }
+      const link = await prisma.memberShopifyLink.findFirst({
+        where: { shopId: shopRecord.id, shopifyCustomerId },
+        include: { member: true },
+      });
+      member = link?.member || null;
     }
 
     if (!member) {
@@ -37,38 +40,35 @@ export default async function customersRedactHandler(topic, shop, body) {
 
     logDataAccess({
       action: 'READ',
-      dataType: 'Member',
+      dataType: 'MemberShopifyLink',
       shop,
       requestedBy: 'shopify-gdpr-webhook',
       recordCount: 1,
-      fields: ['email', 'firstName', 'lastName', 'socialLinks'],
+      fields: ['shopifyCustomerId'],
     });
 
-    // Member.email is non-nullable + unique, so it can't be set to literal
-    // null — overwrite with a synthetic unique value instead. firstName,
-    // lastName, and socialLinks are nullable and cleared outright. The row
-    // itself is kept (never deleted) since it may still be referenced by
-    // Redemption records — see prisma/schema.prisma.
-    await prisma.member.update({
-      where: { id: member.id },
-      data: {
-        email: `redacted-member-${member.id}@deleted.procircle.invalid`,
-        firstName: null,
-        lastName: null,
-        socialLinks: null,
-      },
+    // Scoped to this shop only. A Member's identity (email/name) is
+    // independent of any one brand — the same Member can be linked to
+    // other shops via separate MemberShopifyLink rows, and a redact
+    // request from one shop's customer must not wipe that identity
+    // everywhere (it previously did — see SENTINEL_AND_AUTH_FOLLOWUPS.md).
+    // Only this shop's link is removed; Member.email/firstName/lastName/
+    // socialLinks are never touched here, regardless of whether this was
+    // the member's last remaining shop link.
+    const { count } = await prisma.memberShopifyLink.deleteMany({
+      where: { memberId: member.id, shopId: shopRecord.id },
     });
 
     logDataAccess({
       action: 'REDACT',
-      dataType: 'Member',
+      dataType: 'MemberShopifyLink',
       shop,
       requestedBy: 'shopify-gdpr-webhook',
-      recordCount: 1,
-      fields: ['email', 'firstName', 'lastName', 'socialLinks'],
+      recordCount: count,
+      fields: ['shopifyCustomerId'],
     });
 
-    console.log(`✅ Redacted PII for Member ${member.id} (shop: ${shop})`);
+    console.log(`✅ Redacted shop-scoped link for Member ${member.id} (shop: ${shop}, ${count} link row(s) removed)`);
   } catch (error) {
     console.error(`❌ Failed to redact customer for shop ${shop}:`, error);
   }
