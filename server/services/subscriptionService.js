@@ -3,8 +3,8 @@
 // Shopify-managed pricing: the merchant picks a plan on Shopify's own
 // pricing page, and Shopify creates the AppSubscription itself — ProCircle
 // never calls appSubscriptionCreate for that plan, so Shop.billingSubscriptionId
-// (set only by the legacy self-managed flow in auth.mjs/services/billing.js)
-// is not a reliable signal here. This checks currentAppInstallation directly
+// is never populated for it (that column is now unused dead data — see
+// webhooks/appUninstalled.mjs). This checks currentAppInstallation directly
 // instead. Used by the GET /api/settings redirect gate (web/src/App.jsx)
 // and re-checked independently in routes/campaigns.mjs before a campaign
 // can go active.

@@ -13,6 +13,10 @@ export default async function appUninstalledHandler(topic, shop, body) {
         installed: false,
         uninstalledAt: new Date(),
         accessToken: null,
+        refreshToken: null,
+        refreshTokenExpiresAt: null,
+        accessTokenExpiresAt: null,
+        billingSubscriptionId: null,
         updatedAt: new Date(),
       },
     });
