@@ -7,6 +7,7 @@ import { shopifyApi } from "@shopify/shopify-api";
 import { shopify } from "../shopify.js";
 import { uploadWpMedia, setWpTermLogo } from "../services/wordpress.js";
 import { isBrandProfileComplete } from "../services/brandProfileService.js";
+import { hasActivePlan, getPlanSelectionUrl } from "../services/subscriptionService.js";
 
 
 const router = express.Router();
@@ -43,19 +44,6 @@ function getDefaultSettings(shopId) {
   };
 }
 
-/**
- * -------------------------------------------------------------
- * ✅ VALIDATION HELPERS (added by patch)
- * -------------------------------------------------------------
- */
-const ALLOWED_COUNTRIES = ["UK", "CH", "FR", "IT", "DE", "AT"];
-const ALLOWED_MEMBER_TYPES = [
-  "instructor",
-  "club_member",
-  "competitor",
-  "mountain_guide",
-];
-
 // Deliberately simple — good enough to catch typos/garbage input without
 // rejecting real addresses on some RFC 5322 edge case. Matches the "type"
 // of check type="email" already does client-side; this is just the
@@ -79,6 +67,8 @@ router.get("/", verifyShopifyAuth, async (req, res) => {
       include: { settings: true },
     });
     const shopDomain = req.shopifyShop.shopDomain;
+    const activePlan = await hasActivePlan(req.shopifyShop);
+    const planSelectionUrl = getPlanSelectionUrl(shopDomain);
 
     // Return defaults if settings do not yet exist
     if (!shop.settings) {
@@ -89,6 +79,8 @@ router.get("/", verifyShopifyAuth, async (req, res) => {
         currencyCode: shop.currencyCode,
         settings,
         profileComplete: isBrandProfileComplete(settings),
+        hasActivePlan: activePlan,
+        planSelectionUrl,
       });
     }
 
@@ -98,6 +90,8 @@ router.get("/", verifyShopifyAuth, async (req, res) => {
       currencyCode: shop.currencyCode,
       settings: shop.settings,
       profileComplete: isBrandProfileComplete(shop.settings),
+      hasActivePlan: activePlan,
+      planSelectionUrl,
     });
   } catch (err) {
     console.error("❌ Error loading settings:", err);
@@ -117,22 +111,11 @@ router.post("/", verifyShopifyAuth, async (req, res) => {
 
     const { description, contactName, contactEmail } = req.body || {};
 
-    // TODO: migrate to Campaign/Redemption model — discountType, discountValue,
-    // expiryDays, maxDiscounts, oneTimeUse, allowedCountries, and allowedMemberTypes
-    // were removed from ShopSettings (now campaign-level concerns). The block below
-    // previously wrote those fields via prisma.shopSettings.upsert(), which will now
-    // throw a PrismaClientValidationError (unknown args) — left commented out
-    // pending the Campaign-based settings rework.
-    // const baseType = discountType === "fixed" ? "fixed" : "percentage";
-    // const clean = {
-    //   discountType: baseType,
-    //   discountValue: (() => { ... })(),
-    //   expiryDays: (() => { ... })(),
-    //   maxDiscounts: (() => { ... })(),
-    //   oneTimeUse: !!oneTimeUse,
-    //   allowedCountries: sanitizeStringArray(allowedCountries).filter(c => ALLOWED_COUNTRIES.includes(c)),
-    //   allowedMemberTypes: sanitizeStringArray(allowedMemberTypes).filter(m => ALLOWED_MEMBER_TYPES.includes(m)),
-    // };
+    // discountType, discountValue, expiryDays, maxDiscounts, oneTimeUse,
+    // allowedCountries, and allowedMemberTypes were removed from
+    // ShopSettings — those are now campaign-level concerns (Campaign.
+    // discountValue/maxRedemptions and CampaignFilter role/country
+    // entries — see routes/campaigns.mjs), not shop-wide settings.
 
     const cleanDescription = typeof description === "string" ? description.trim() : "";
     if (cleanDescription.length > BRAND_DESCRIPTION_MAX_LENGTH) {

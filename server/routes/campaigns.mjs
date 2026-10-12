@@ -13,12 +13,14 @@ import {
 } from "../services/wordpress.js";
 import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
 import { isBrandProfileComplete } from "../services/brandProfileService.js";
+import { hasActivePlan } from "../services/subscriptionService.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
 
 const PROFILE_INCOMPLETE_ERROR =
   "Complete your brand profile in Settings before activating a campaign.";
+const PLAN_REQUIRED_ERROR = "Select a plan before activating a campaign.";
 
 /**
  * Independent server-side re-check — the /setup gate (web/src/App.jsx) is
@@ -208,6 +210,14 @@ router.post("/create", verifyShopifyAuth, async (req, res) => {
     // Authoritative shop comes from the verified session token, not
     // req.query.shop — that's caller-supplied and shouldn't be trusted.
     const shop = req.shopifyShop;
+
+    if (!(await hasActivePlan(shop))) {
+      return res.status(400).json({
+        success: false,
+        error: PLAN_REQUIRED_ERROR,
+        code: "PLAN_REQUIRED",
+      });
+    }
 
     // Campaigns are created active by default (see requireCompleteBrandProfile
     // above) — this is the activation gate for creation.
@@ -695,6 +705,14 @@ router.post("/:id/resume", verifyShopifyAuth, async (req, res) => {
     }
     if (campaign.status !== "paused") {
       return res.status(400).json({ success: false, error: `Cannot resume a campaign with status "${campaign.status}"` });
+    }
+
+    if (!(await hasActivePlan(shop))) {
+      return res.status(400).json({
+        success: false,
+        error: PLAN_REQUIRED_ERROR,
+        code: "PLAN_REQUIRED",
+      });
     }
 
     if (!(await requireCompleteBrandProfile(shop.id))) {

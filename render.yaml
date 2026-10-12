@@ -9,6 +9,10 @@ services:
         value: production
       - key: VITE_SHOPIFY_API_KEY
         sync: false
+      - key: SHOPIFY_APP_HANDLE
+        sync: false
+      - key: BILLING_REQUIRED
+        sync: false
 
   - type: cron
     name: procircle-expiry-cron

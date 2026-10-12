@@ -17,6 +17,12 @@ export default function App({ host }) {
   // and is independent of the server-side campaign-activation check in
   // routes/campaigns.mjs, which remains authoritative either way.
   const [profileComplete, setProfileComplete] = useState(null)
+  // Same null-until-checked pattern, but this gate runs first: a shop with
+  // no active Shopify-managed plan gets sent to Shopify's own pricing page
+  // before it ever sees the setup screen (see routes/settings.mjs and
+  // services/subscriptionService.js).
+  const [hasActivePlan, setHasActivePlan] = useState(null)
+  const [planSelectionUrl, setPlanSelectionUrl] = useState(null)
 
   const checkProfile = useCallback(async () => {
     try {
@@ -26,11 +32,14 @@ export default function App({ host }) {
         headers: { Authorization: `Bearer ${token}` },
       })
       const data = await res.json()
+      setHasActivePlan(!!data.hasActivePlan)
+      setPlanSelectionUrl(data.planSelectionUrl || null)
       setProfileComplete(!!data.profileComplete)
     } catch {
       // Fail open on a transient load error rather than trapping the
       // merchant on a broken gate screen with no way forward — the
       // server-side check on campaign activation is the real backstop.
+      setHasActivePlan(true)
       setProfileComplete(true)
     }
   }, [shopify])
@@ -39,9 +48,17 @@ export default function App({ host }) {
     checkProfile()
   }, [checkProfile])
 
+  // Top-level redirect, not an in-iframe navigation — the pricing page
+  // isn't embeddable, so this must break out of the Admin iframe.
+  useEffect(() => {
+    if (hasActivePlan === false && planSelectionUrl) {
+      window.open(planSelectionUrl, '_top')
+    }
+  }, [hasActivePlan, planSelectionUrl])
+
   const goToSettings = useCallback(() => setCurrentPage('settings'), [])
 
-  if (profileComplete === null) {
+  if (profileComplete === null || hasActivePlan === null || hasActivePlan === false) {
     return (
       <Frame>
         <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
