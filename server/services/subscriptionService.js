@@ -11,9 +11,15 @@
 
 import { shopify } from "../shopify.js";
 
+// Also fetches app { handle } — used by getPlanSelectionUrl below to build
+// the merchant's pricing-page URL from the live app registration rather
+// than the SHOPIFY_APP_HANDLE env var.
 const ACTIVE_SUBSCRIPTIONS_QUERY = `
   query ProCircleCurrentSubscriptions {
     currentAppInstallation {
+      app {
+        handle
+      }
       activeSubscriptions {
         id
         name
@@ -69,12 +75,40 @@ export async function hasActivePlan(shop) {
 }
 
 /**
- * @param {string} shopDomain e.g. "example.myshopify.com"
- * @returns {string|null} null if SHOPIFY_APP_HANDLE isn't configured
+ * @param {{ shopDomain: string, accessToken?: string|null }} shop
+ * @returns {Promise<string|null>}
  */
-export function getPlanSelectionUrl(shopDomain) {
-  const appHandle = process.env.SHOPIFY_APP_HANDLE;
-  if (!appHandle || !shopDomain) return null;
+async function resolveAppHandle(shop) {
+  if (shop?.accessToken) {
+    try {
+      const client = new shopify.clients.Graphql({
+        session: { shop: shop.shopDomain, accessToken: shop.accessToken },
+      });
+
+      const response = await client.request(ACTIVE_SUBSCRIPTIONS_QUERY);
+      const handle = response.data?.currentAppInstallation?.app?.handle;
+
+      if (handle) return handle;
+    } catch (err) {
+      // Fall back to the env var below.
+      console.error(`❌ Failed to fetch app handle for ${shop.shopDomain}:`, err?.message || err);
+    }
+  }
+
+  return process.env.SHOPIFY_APP_HANDLE || null;
+}
+
+/**
+ * @param {{ shopDomain: string, accessToken?: string|null }} shop
+ * @returns {Promise<string|null>} null if no handle is available, from the
+ *   query or SHOPIFY_APP_HANDLE
+ */
+export async function getPlanSelectionUrl(shop) {
+  const shopDomain = shop?.shopDomain;
+  if (!shopDomain) return null;
+
+  const appHandle = await resolveAppHandle(shop);
+  if (!appHandle) return null;
 
   const storeHandle = shopDomain.replace(/\.myshopify\.com$/, "");
   return `https://admin.shopify.com/store/${storeHandle}/charges/${appHandle}/pricing_plans`;

@@ -68,7 +68,7 @@ router.get("/", verifyShopifyAuth, async (req, res) => {
     });
     const shopDomain = req.shopifyShop.shopDomain;
     const activePlan = await hasActivePlan(req.shopifyShop);
-    const planSelectionUrl = getPlanSelectionUrl(shopDomain);
+    const planSelectionUrl = await getPlanSelectionUrl(req.shopifyShop);
 
     // Return defaults if settings do not yet exist
     if (!shop.settings) {
