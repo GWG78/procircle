@@ -27,10 +27,12 @@ export default async function ordersPaidHandler(topic, shop, body) {
 
     const discountCode = discountCodes[0].code;
 
-    if (!discountCode?.startsWith("PROCIRCLE-")) {
-      console.log(
-        `⚪ Discount code ${discountCode} is not a ProCircle code — skipping`
-      );
+    // No prefix check here: campaign codes are generated as PC-XXXX-<value>
+    // (services/discountLinkService.js), and the old "PROCIRCLE-" prefix
+    // check rejected every one of them. The campaign lookup below, by exact
+    // code + shop, is the authoritative test of whether this is our code.
+    if (!discountCode) {
+      console.log(`⚪ Empty discount code on order ${body.id} — skipping`);
       return;
     }
 
@@ -121,7 +123,8 @@ export default async function ordersPaidHandler(topic, shop, body) {
           campaignId: campaign.id,
           status: "confirmed",
           member: {
-            email: body.email,
+            // Member.email is stored lowercased (routes/members.mjs).
+            email: String(body.email || "").trim().toLowerCase(),
           },
         },
       });
