@@ -122,6 +122,13 @@ model Redemption {
 
   commissionReportedAt     DateTime?
   commissionEventKey       String?   @unique
+
+  commissionRetryCount        Int       @default(0)
+  commissionLastAttemptAt     DateTime?
+  commissionLastError         String?
+  commissionFailedPermanently Boolean   @default(false)
+
+  @@index([commissionAmount, commissionReportedAt, commissionFailedPermanently])
 }
 
 model Member {
