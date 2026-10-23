@@ -272,8 +272,9 @@ async function updateWpCampaignStatus(wpPostId, { status, endedAt, endedReason }
 }
 
 /**
- * Uploads image bytes to the WordPress media library. Returns the
- * new attachment's numeric ID, or null on failure — never throws.
+ * Uploads image bytes to the WordPress media library. Returns
+ * { id, url }, where url is the attachment's source_url, or null on
+ * failure — never throws.
  */
 async function uploadWpMedia(buffer, filename, mimeType) {
   try {
@@ -294,9 +295,36 @@ async function uploadWpMedia(buffer, filename, mimeType) {
     }
 
     const json = await response.json();
-    return json.id;
+    return { id: json.id, url: json.source_url };
   } catch (err) {
     console.error("❌ uploadWpMedia error:", err.message);
+    return null;
+  }
+}
+
+/**
+ * Fetches the source_url for an existing media attachment — used to
+ * backfill Shop.logoUrl for shops that already have logoWpAttachmentId
+ * cached from before logoUrl existed. Returns the URL string, or null on
+ * any failure (including a 404) — never throws, so a WordPress outage
+ * just means GET /api/settings returns logoUrl: null instead of breaking.
+ */
+async function getWpMediaUrl(attachmentId) {
+  try {
+    const response = await fetch(`${WP_BASE_URL}/wp-json/wp/v2/media/${attachmentId}`, {
+      headers: { Authorization: wpAuthHeader() },
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error(`❌ getWpMediaUrl failed for attachment ${attachmentId} (HTTP ${response.status}): ${errorBody}`);
+      return null;
+    }
+
+    const json = await response.json();
+    return json.source_url || null;
+  } catch (err) {
+    console.error(`❌ getWpMediaUrl error for attachment ${attachmentId}:`, err.message);
     return null;
   }
 }
@@ -359,6 +387,7 @@ export {
   updateWpCampaignStatus,
   getOrCreateWpTermId,
   uploadWpMedia,
+  getWpMediaUrl,
   setWpTermLogo,
   wpTermExists,
 };

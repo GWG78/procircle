@@ -5,7 +5,7 @@ import prisma from "../prismaClient.js";
 import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
 import { shopifyApi } from "@shopify/shopify-api";
 import { shopify } from "../shopify.js";
-import { uploadWpMedia } from "../services/wordpress.js";
+import { uploadWpMedia, getWpMediaUrl } from "../services/wordpress.js";
 import { pushBrandLogo } from "../services/brandTermService.js";
 import { isBrandProfileComplete } from "../services/brandProfileService.js";
 import { hasActivePlan, getPlanSelectionUrl } from "../services/subscriptionService.js";
@@ -54,6 +54,24 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BRAND_DESCRIPTION_MAX_LENGTH = 300;
 
 /**
+ * Returns the shop's logo URL, backfilling Shop.logoUrl from WordPress once
+ * for shops that already have logoWpAttachmentId cached from before
+ * logoUrl existed. getWpMediaUrl never throws, so a WordPress outage just
+ * means this returns null instead of breaking GET /api/settings, which
+ * App.jsx calls on every mount.
+ */
+async function resolveLogoUrl(shop) {
+  if (shop.logoUrl) return shop.logoUrl;
+  if (!shop.logoWpAttachmentId) return null;
+
+  const url = await getWpMediaUrl(shop.logoWpAttachmentId);
+  if (!url) return null;
+
+  await prisma.shop.update({ where: { id: shop.id }, data: { logoUrl: url } });
+  return url;
+}
+
+/**
  * ===========================================================
  * GET /api/settings
  * Returns existing settings or default structure
@@ -70,6 +88,7 @@ router.get("/", verifyShopifyAuth, async (req, res) => {
     const shopDomain = req.shopifyShop.shopDomain;
     const activePlan = await hasActivePlan(req.shopifyShop);
     const planSelectionUrl = await getPlanSelectionUrl(req.shopifyShop);
+    const logoUrl = await resolveLogoUrl(shop);
 
     // Return defaults if settings do not yet exist
     if (!shop.settings) {
@@ -82,6 +101,7 @@ router.get("/", verifyShopifyAuth, async (req, res) => {
         profileComplete: isBrandProfileComplete(settings),
         hasActivePlan: activePlan,
         planSelectionUrl,
+        logoUrl,
       });
     }
 
@@ -93,6 +113,7 @@ router.get("/", verifyShopifyAuth, async (req, res) => {
       profileComplete: isBrandProfileComplete(shop.settings),
       hasActivePlan: activePlan,
       planSelectionUrl,
+      logoUrl,
     });
   } catch (err) {
     console.error("❌ Error loading settings:", err);
@@ -218,19 +239,21 @@ router.post("/logo", verifyShopifyAuth, upload.single("logo"), async (req, res) 
       return res.status(400).json({ success: false, error: "No file uploaded" });
     }
 
-    const attachmentId = await uploadWpMedia(req.file.buffer, req.file.originalname, req.file.mimetype);
+    const uploaded = await uploadWpMedia(req.file.buffer, req.file.originalname, req.file.mimetype);
 
-    if (!attachmentId) {
+    if (!uploaded) {
       return res.status(502).json({ success: false, error: "Failed to upload logo to WordPress" });
     }
 
-    await prisma.shop.update({ where: { id: shop.id }, data: { logoWpAttachmentId: attachmentId } });
+    const { id: attachmentId, url: logoUrl } = uploaded;
+
+    await prisma.shop.update({ where: { id: shop.id }, data: { logoWpAttachmentId: attachmentId, logoUrl } });
 
     // Re-resolves and retries if the cached term ID is stale (deleted /
     // replaced in WordPress) — see services/brandTermService.js.
     await pushBrandLogo(shop, attachmentId);
 
-    res.json({ success: true, attachmentId });
+    res.json({ success: true, attachmentId, logoUrl });
   } catch (err) {
     console.error("❌ Error uploading logo:", err);
     res.status(500).json({ success: false, error: "Failed to upload logo" });

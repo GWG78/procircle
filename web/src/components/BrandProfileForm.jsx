@@ -76,6 +76,7 @@ export default function BrandProfileForm({
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null) // { message, error }
   const [logoFile, setLogoFile] = useState(null)
+  const [logoUrl, setLogoUrl] = useState(null)
   const [uploadingLogo, setUploadingLogo] = useState(false)
 
   useEffect(() => {
@@ -94,6 +95,7 @@ export default function BrandProfileForm({
         setDescription(data.settings?.description || '')
         setContactName(data.settings?.contactName || '')
         setContactEmail(data.settings?.contactEmail || '')
+        setLogoUrl(data.logoUrl || null)
       } catch {
         if (!cancelled) setToast({ message: 'Failed to load settings', error: true })
       } finally {
@@ -192,6 +194,7 @@ export default function BrandProfileForm({
       })
       const data = await res.json()
       if (!data.success) throw new Error(data.error || 'Logo upload failed')
+      setLogoUrl(data.logoUrl || null)
       setToast({ message: 'Logo uploaded!', error: false })
     } catch (err) {
       console.error('[BrandProfileForm] logo upload request failed:', err)
@@ -241,6 +244,8 @@ export default function BrandProfileForm({
                     >
                       {logoFile ? (
                         <Thumbnail source={window.URL.createObjectURL(logoFile)} alt="Logo preview" size="large" />
+                      ) : logoUrl ? (
+                        <Thumbnail source={logoUrl} alt="Logo preview" size="large" />
                       ) : (
                         <Icon source={ImageIcon} tone="subdued" />
                       )}
@@ -271,7 +276,7 @@ export default function BrandProfileForm({
               showCharacterCount
               autoComplete="off"
               placeholder="We make technical ski and outdoor apparel designed for guides and instructors who spend all day outside."
-              helpText="A brief description of your brand and what you sell."
+              
             />
           </FormLayout>
 
@@ -284,7 +289,7 @@ export default function BrandProfileForm({
                 onChange={setContactName}
                 autoComplete="off"
                 placeholder="Full name"
-                helpText="Who we contact about campaign limits."
+                
               />
               <TextField
                 label={<>Contact email{requiredAsterisk}</>}
@@ -293,7 +298,7 @@ export default function BrandProfileForm({
                 onChange={handleEmailChange}
                 autoComplete="off"
                 placeholder="name@brand.com"
-                helpText="Kept private, never shown to pros."
+                
                 error={emailError}
               />
             </FormLayout.Group>
