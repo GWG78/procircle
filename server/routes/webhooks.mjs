@@ -436,11 +436,15 @@ router.post(
 
       res.status(200).send("Order paid processed.");
     } catch (err) {
-      console.error("❌ Error handling orders paid webhook:", err);
-      // Always 200, even on failure — a missed commission charge is
-      // reconcilable manually; a retry storm on a billing endpoint is not
-      // something we want Shopify doing repeatedly.
-      res.status(200).send("Webhook failed but acknowledged.");
+      // ordersPaidHandler only throws when it failed BEFORE persisting
+      // anything for this order (the lookup + first write are
+      // deterministic from shopifyOrderId, so a replayed delivery is
+      // safe). Everything after that first write is caught and
+      // swallowed inside the handler itself and left for the retry job
+      // — so reaching this catch means nothing is on the Redemption row
+      // yet, and it's safe (and necessary) to ask Shopify to retry.
+      console.error("❌ Error handling orders paid webhook (nothing persisted yet):", err);
+      res.status(500).send("Webhook failed — retry.");
     }
   }
 );

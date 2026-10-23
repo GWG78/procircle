@@ -49,3 +49,48 @@ services:
           type: web
           name: procircle-server
           envVarKey: MAKE_EXPIRY_NOTIFICATION_WEBHOOK_URL
+
+  - type: cron
+    name: procircle-commission-retry-cron
+    runtime: node
+    schedule: "*/15 * * * *"
+    buildCommand: cd server && npm install && npx prisma generate --schema prisma/schema.prisma
+    startCommand: cd server && node scripts/retryCommissions.js
+    envVars:
+      - key: DATABASE_URL
+        fromService:
+          type: web
+          name: procircle-server
+          envVarKey: DATABASE_URL
+      - key: SHOPIFY_API_KEY
+        fromService:
+          type: web
+          name: procircle-server
+          envVarKey: SHOPIFY_API_KEY
+      - key: SHOPIFY_API_SECRET
+        fromService:
+          type: web
+          name: procircle-server
+          envVarKey: SHOPIFY_API_SECRET
+      - key: CURRENCY_API_KEY
+        fromService:
+          type: web
+          name: procircle-server
+          envVarKey: CURRENCY_API_KEY
+      - key: SHOPIFY_PARTNER_ORG_ID
+        fromService:
+          type: web
+          name: procircle-server
+          envVarKey: SHOPIFY_PARTNER_ORG_ID
+      - key: SHOPIFY_PARTNER_API_ACCESS_TOKEN
+        fromService:
+          type: web
+          name: procircle-server
+          envVarKey: SHOPIFY_PARTNER_API_ACCESS_TOKEN
+      - key: SHOPIFY_APP_GID
+        fromService:
+          type: web
+          name: procircle-server
+          envVarKey: SHOPIFY_APP_GID
+      - key: COMMISSION_RETRY_MAX_ATTEMPTS
+        value: "10"
