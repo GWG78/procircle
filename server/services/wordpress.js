@@ -32,7 +32,11 @@ async function createWpUser(email, firstName, lastName) {
         Authorization: wpAuthHeader(),
       },
       body: JSON.stringify({
-        username: email,
+        // WordPress usernames only allow letters, numbers, space and
+        // _ . - @ — so an email like name+tag@x.com is rejected as a
+        // username. Swap anything else for "-"; members log in by email
+        // anyway, so the username is never shown or typed.
+        username: email.replace(/[^a-zA-Z0-9 _.\-@]/g, "-"),
         email,
         first_name: firstName,
         last_name: lastName,
@@ -299,7 +303,10 @@ async function uploadWpMedia(buffer, filename, mimeType) {
 
 /**
  * Sets the logo ACF field on an existing campaign_brand term.
- * Returns true/false — never throws.
+ * Returns { ok, notFound } — never throws. notFound is true when WordPress
+ * says the term ID doesn't exist (HTTP 404 rest_term_invalid), which means
+ * the caller's cached Shop.wpBrandTermId is stale and should be re-resolved
+ * (see services/brandTermService.js).
  */
 async function setWpTermLogo(termId, attachmentId) {
   try {
@@ -314,14 +321,34 @@ async function setWpTermLogo(termId, attachmentId) {
 
     if (!response.ok) {
       const errorBody = await response.text();
+      const notFound = response.status === 404 && errorBody.includes("rest_term_invalid");
       console.error(`❌ setWpTermLogo failed for term ${termId} (HTTP ${response.status}): ${errorBody}`);
-      return false;
+      return { ok: false, notFound };
     }
 
-    return true;
+    return { ok: true, notFound: false };
   } catch (err) {
     console.error(`❌ setWpTermLogo error for term ${termId}:`, err.message);
-    return false;
+    return { ok: false, notFound: false };
+  }
+}
+
+/**
+ * Checks whether a campaign_brand term ID still exists in WordPress.
+ * Returns true (exists), false (confirmed 404), or null (couldn't tell —
+ * network error / other status). Never throws.
+ */
+async function wpTermExists(termId) {
+  try {
+    const response = await fetch(`${WP_BASE_URL}/wp-json/wp/v2/campaign_brand/${termId}`, {
+      headers: { Authorization: wpAuthHeader() },
+    });
+    if (response.ok) return true;
+    if (response.status === 404) return false;
+    return null;
+  } catch (err) {
+    console.error(`❌ wpTermExists error for term ${termId}:`, err.message);
+    return null;
   }
 }
 
@@ -333,4 +360,5 @@ export {
   getOrCreateWpTermId,
   uploadWpMedia,
   setWpTermLogo,
+  wpTermExists,
 };

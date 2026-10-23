@@ -5,7 +5,8 @@ import prisma from "../prismaClient.js";
 import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
 import { shopifyApi } from "@shopify/shopify-api";
 import { shopify } from "../shopify.js";
-import { uploadWpMedia, setWpTermLogo } from "../services/wordpress.js";
+import { uploadWpMedia } from "../services/wordpress.js";
+import { pushBrandLogo } from "../services/brandTermService.js";
 import { isBrandProfileComplete } from "../services/brandProfileService.js";
 import { hasActivePlan, getPlanSelectionUrl } from "../services/subscriptionService.js";
 
@@ -225,9 +226,9 @@ router.post("/logo", verifyShopifyAuth, upload.single("logo"), async (req, res) 
 
     await prisma.shop.update({ where: { id: shop.id }, data: { logoWpAttachmentId: attachmentId } });
 
-    if (shop.wpBrandTermId) {
-      await setWpTermLogo(shop.wpBrandTermId, attachmentId);
-    }
+    // Re-resolves and retries if the cached term ID is stale (deleted /
+    // replaced in WordPress) — see services/brandTermService.js.
+    await pushBrandLogo(shop, attachmentId);
 
     res.json({ success: true, attachmentId });
   } catch (err) {

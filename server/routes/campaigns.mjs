@@ -8,9 +8,8 @@ import { endCampaignAndNotify } from "../services/campaignLifecycleService.js";
 import {
   createWpCampaignPost,
   updateWpCampaignStatus,
-  getOrCreateWpTermId,
-  setWpTermLogo,
 } from "../services/wordpress.js";
+import { ensureBrandTermId } from "../services/brandTermService.js";
 import verifyShopifyAuth from "../middleware/verifyShopifyAuth.js";
 import { isBrandProfileComplete } from "../services/brandProfileService.js";
 import { hasActivePlan } from "../services/subscriptionService.js";
@@ -354,28 +353,13 @@ router.post("/create", verifyShopifyAuth, async (req, res) => {
     // already-billable Shopify discount, which is worse than a campaign
     // that just needs a manual WP catch-up later.
     try {
-      let termId = shop.wpBrandTermId;
-
-      if (!termId) {
-        // Keyed on the raw shop domain, not a fetched display name — this
-        // term is now purely a filtering/grouping key on the WordPress
-        // side. Members see the real brand name via offer.brandName
-        // (services/shopService.js), sent straight from Node on every
-        // offers request, so nothing ever reads this term's own name for
-        // display anymore.
-        const result = await getOrCreateWpTermId("campaign_brand", shop.shopDomain);
-        termId = result.id;
-
-        if (termId) {
-          await prisma.shop.update({ where: { id: shop.id }, data: { wpBrandTermId: termId } });
-
-          // A logo may already have been uploaded via Settings before this
-          // shop's first campaign — attach it now that the term exists.
-          if (shop.logoWpAttachmentId) {
-            await setWpTermLogo(termId, shop.logoWpAttachmentId);
-          }
-        }
-      }
+      // Keyed on the raw shop domain, not a fetched display name — this
+      // term is purely a filtering/grouping key on the WordPress side.
+      // Members see the real brand name via offer.brandName
+      // (services/shopService.js). ensureBrandTermId also re-resolves a
+      // cached term that no longer exists in WordPress, and attaches any
+      // logo uploaded via Settings before the term existed.
+      const termId = await ensureBrandTermId(shop);
 
       const wpPostId = await createWpCampaignPost({
         brandTermId: termId,
