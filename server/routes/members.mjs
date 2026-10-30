@@ -130,6 +130,12 @@ router.use((req, res, next) => {
  * logic below. Callers (Apps Script's MemberSync.js) are expected to email
  * this token as a link to GET /api/members/verify?token=...
  *
+ * The response also carries `alreadyVerified`: true when the upserted
+ * member was already verified (so `verificationToken` is null — there's
+ * nothing to confirm), false otherwise. Lets callers tell "nothing to send"
+ * apart from "member still needs to verify" without inferring it from
+ * verificationToken being null for two different reasons.
+ *
  * Email is trimmed AND lowercased before the upsert — every other email
  * lookup that touches Member.email (this route, the redemption route's two
  * lookups) now normalizes the same way, so casing differences between
@@ -203,7 +209,7 @@ router.post("/", async (req, res) => {
       verificationToken = member.verificationToken;
     }
 
-    res.json({ success: true, member, verificationToken });
+    res.json({ success: true, member, verificationToken, alreadyVerified: member.verified });
   } catch (err) {
     console.error("❌ Error upserting member:", err);
     res.status(500).json({ success: false, error: "Failed to upsert member" });
