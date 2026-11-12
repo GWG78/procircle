@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { Frame, Navigation, Spinner } from '@shopify/polaris'
+import { Frame, Navigation, Spinner, Page, Card, BlockStack, Text, Button, Banner } from '@shopify/polaris'
 import { HomeIcon, DiscountIcon } from '@shopify/polaris-icons'
 import { useAppBridge } from '@shopify/app-bridge-react'
 import SettingsPage from './pages/SettingsPage'
@@ -58,12 +58,53 @@ export default function App({ host }) {
 
   const goToSettings = useCallback(() => setCurrentPage('settings'), [])
 
-  if (profileComplete === null || hasActivePlan === null || hasActivePlan === false) {
+  if (profileComplete === null || hasActivePlan === null) {
     return (
       <Frame>
         <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
           <Spinner size="large" accessibilityLabel="Loading" />
         </div>
+      </Frame>
+    )
+  }
+
+  // No active Shopify-managed plan — the effect above already tried to break
+  // out to Shopify's pricing page via window.open(..., '_top'), but that can
+  // fail silently (popup blockers, a stale host) or never fire, so this
+  // screen must stand on its own rather than assume the redirect worked.
+  if (hasActivePlan === false) {
+    if (!planSelectionUrl) {
+      console.error('❌ No planSelectionUrl available — cannot send merchant to the Shopify pricing page')
+    }
+
+    return (
+      <Frame>
+        <Page>
+          <BlockStack gap="400">
+            {!planSelectionUrl && (
+              <Banner tone="critical">
+                We couldn't load the plan page. Please refresh, or contact hi@procircle.io.
+              </Banner>
+            )}
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h1" variant="headingLg">Choose your plan to get started</Text>
+                <Text as="p" tone="subdued">
+                  ProCircle is free to install. You only pay a sales commission on verified ProCircle sales.
+                </Text>
+                <div>
+                  <Button
+                    variant="primary"
+                    disabled={!planSelectionUrl}
+                    onClick={() => window.open(planSelectionUrl, '_top')}
+                  >
+                    Choose plan
+                  </Button>
+                </div>
+              </BlockStack>
+            </Card>
+          </BlockStack>
+        </Page>
       </Frame>
     )
   }
@@ -105,7 +146,7 @@ export default function App({ host }) {
   return (
     <Frame navigation={navigationMarkup}>
       {currentPage === 'campaigns' && <CampaignsPage onGoToSettings={goToSettings} />}
-      {currentPage === 'settings' && <SettingsPage />}
+      {currentPage === 'settings' && <SettingsPage planSelectionUrl={planSelectionUrl} />}
     </Frame>
   )
 }
